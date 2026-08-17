@@ -47,7 +47,7 @@ class AuthenticationTest extends AbstractIntegrationTest {
     @Test
     void protectedEndpointAcceptsValidCredentials() throws Exception {
         mockMvc.perform(get("/api/libraries").with(httpBasic("dave", "pw123")))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk());
     }
 
     @Test
