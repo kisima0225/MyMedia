@@ -179,10 +179,10 @@ com.mymedia
 -- libraries 上加一个冗余唯一键，使 domain 可被外键引用
 ALTER TABLE libraries ADD CONSTRAINT uq_library_domain UNIQUE (id, domain);
 
--- media_item 冗余 domain 列，并用复合外键把它钉死在所属库的 domain 上
-ALTER TABLE media_item ADD CONSTRAINT fk_item_library_domain
+-- video_item 冗余 domain 列，并用复合外键把它钉死在所属库的 domain 上
+ALTER TABLE video_item ADD CONSTRAINT fk_video_item_library_domain
   FOREIGN KEY (library_id, domain) REFERENCES libraries (id, domain);
-ALTER TABLE media_item ADD CONSTRAINT ck_item_is_video
+ALTER TABLE video_item ADD CONSTRAINT ck_item_is_video
   CHECK (domain = 'VIDEO');
 
 -- image_node 同理
@@ -197,7 +197,7 @@ ALTER TABLE image_node ADD CONSTRAINT ck_node_is_image
 条目类型与域的对应关系：
 
 ```
-domain = VIDEO  →  media_item.item_type ∈ {MOVIE, SERIES, SINGLE_VIDEO, VIDEO_SERIES}
+domain = VIDEO  →  video_item.item_type ∈ {MOVIE, SERIES, SINGLE_VIDEO, VIDEO_SERIES}
 domain = IMAGE  →  image_node 节点树，无 item_type（见 §6.4）
 ```
 
@@ -255,7 +255,7 @@ video_file            image_file     ← 语义层，各域拥有
 **`share_link`**
 ```
 token(uniq), library_id
-video_item_id (nullable, → media_item)
+video_item_id (nullable, → video_item)
 image_node_id (nullable, → image_node)
 password_hash(nullable), expires_at, created_by, created_at, revoked_at
 CHECK (num_nonnulls(video_item_id, image_node_id) = 1)
@@ -307,7 +307,13 @@ upload_chunk:   session_id, chunk_index, size, received_at   (复合主键)
 
 ### 6.3 视频域
 
-**`media_item`** —— 一个"作品"
+> **命名说明（2026-08-17 修订）**：本节的表原名 `media_item` / `media_group`，
+> 已统一改为 `video_item` / `video_group`。理由：它们是**视频域专属**的
+> （图片域走 `image_node`），一个叫 "media" 却只装视频的表会误导读者。
+> 改名后与 `image_node` / `image_file` 对称。`collection` 保持原名，
+> 它已有 `domain` 列并在本节明确标注为视频域专属。
+
+**`video_item`** —— 一个"作品"
 ```
 id, library_id
 domain                   恒为 'VIDEO'，复合外键钉死在 libraries.domain 上（见 §5.1）
@@ -327,7 +333,7 @@ search_vector tsvector   PG 全文检索
 
 **关键设计**：`structure` 是独立字段而非由 `item_type` 推导。一部"电影"若实际含多个部分，同样可以是 `GROUPED`。扫描时按实际目录结构判定，用户可手动更改。
 
-**`media_group`** —— 可选分组（季 / 分册），仅 `structure=GROUPED` 时存在
+**`video_group`** —— 可选分组（季 / 分册），仅 `structure=GROUPED` 时存在
 `id, item_id, group_index, name, summary, cover_asset_id, metadata jsonb`
 
 **`video_file`** —— 语义层
@@ -345,7 +351,7 @@ probe_raw jsonb          ffprobe 原始输出
 ```
 collection:      id, library_id, domain(恒为 'VIDEO'，复合外键约束), name, sort_key,
                  summary, cover_asset_id, metadata jsonb
-collection_item: collection_id, media_item_id, sort_order   (复合主键)
+collection_item: collection_id, video_item_id, sort_order   (复合主键)
 ```
 **多对多**：一部电影可同时属于「指环王三部曲」与「托尔金改编作品」。嵌套合集暂不做，理由与将来加法记入 ADR。
 
@@ -358,7 +364,7 @@ status
 ```
 视频域的主浏览方式是语义化的（按电影/剧集/合集），目录树是**次要视图**，让用户能按自己的目录组织方式浏览。该表只承载导航，不承载元数据与进度。
 
-**`media_item_tag`**：`item_id, tag_id`
+**`video_item_tag`**：`item_id, tag_id`
 
 ### 6.4 图片域
 
@@ -417,7 +423,7 @@ width, height, format, is_animated
 video_progress:  user_id, video_file_id, position_seconds, duration_seconds,
                  completed, updated_at                        (复合主键)
 image_progress:  user_id, image_node_id, page_index, updated_at   (复合主键)
-video_favorite:  user_id, media_item_id, created_at            (复合主键)
+video_favorite:  user_id, video_item_id, created_at            (复合主键)
 image_favorite:  user_id, image_node_id, created_at            (复合主键)
 ```
 
@@ -427,10 +433,10 @@ image_favorite:  user_id, image_node_id, created_at            (复合主键)
 
 ```
 scrape_candidate: id
-                  media_item_id (nullable, → media_item)
+                  video_item_id (nullable, → video_item)
                   image_node_id (nullable, → image_node)
                   provider, external_id, title, year, score, payload jsonb, created_at
-                  CHECK (num_nonnulls(media_item_id, image_node_id) = 1)
+                  CHECK (num_nonnulls(video_item_id, image_node_id) = 1)
 ```
 `scrape_status = NEEDS_REVIEW` 时的候选列表，供用户在界面上一键确认或忽略。与 `share_link` 一致，使用两个可空外键而非多态列，使删除条目时候选记录能由外键级联清理。
 
@@ -553,7 +559,7 @@ search_vector tsvector GENERATED ALWAYS AS (
 ) STORED
 
 -- 中文主路径：三元组索引直接建在原文列上
-CREATE INDEX idx_item_title_trgm ON media_item USING gin (title gin_trgm_ops);
+CREATE INDEX idx_item_title_trgm ON video_item USING gin (title gin_trgm_ops);
 CREATE INDEX idx_node_title_trgm ON image_node USING gin (name gin_trgm_ops);
 ```
 
