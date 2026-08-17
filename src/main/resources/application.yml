@@ -27,3 +27,9 @@ management:
 logging:
   level:
     com.mymedia: DEBUG
+
+mymedia:
+  jobs:
+    poll-interval: PT5S      # 轮询间隔
+    batch-size: 5            # 单次抢占的任务数
+    lease-duration: PT10M    # 租约时长，超时视为 worker 已死
