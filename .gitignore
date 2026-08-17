@@ -1,0 +1,26 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+node_modules/
+dist/
+.vite/
+
+*.log
+.DS_Store
+Thumbs.db
+
+.env
+.env.local
+application-local.yml
+
+# 媒体与派生资源：绝不入库
+media/
+derived/
+uploads/
