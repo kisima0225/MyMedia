@@ -2,14 +2,13 @@ package com.mymedia;
 
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-@SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=none")
+@SpringBootTest
 @Import(AbstractIntegrationTest.ContainerConfig.class)
 public abstract class AbstractIntegrationTest {
 
