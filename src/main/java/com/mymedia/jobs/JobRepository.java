@@ -1,6 +1,8 @@
 package com.mymedia.jobs;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -10,6 +12,10 @@ import java.util.List;
 import java.util.Optional;
 
 interface JobRepository extends JpaRepository<Job, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select j from Job j where j.id = :id")
+    Optional<Job> findByIdForUpdate(@Param("id") Long id);
 
     @Query("""
             SELECT j FROM Job j

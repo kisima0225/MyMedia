@@ -91,11 +91,33 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void staleWorkerCannotUpdateJobAfterLeaseIsReclaimedAndReassigned() {
+        Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
+
+        assertThat(claimService.claim("worker-a", 100, Duration.ofSeconds(-1)))
+                .extracting(Job::getId)
+                .contains(id);
+        claimService.reclaimExpiredLeases();
+        assertThat(claimService.claim("worker-b", 100, Duration.ofMinutes(5)))
+                .extracting(Job::getId)
+                .contains(id);
+
+        claimService.recordSuccess(id, "worker-a");
+        claimService.recordFailure(id, "worker-a", "过期 worker 失败");
+
+        Job job = jobQueue.findById(id);
+        assertThat(job.getStatus()).isEqualTo(JobStatus.RUNNING);
+        assertThat(job.getLeaseOwner()).isEqualTo("worker-b");
+        assertThat(job.getAttempts()).isEqualTo(2);
+        assertThat(job.getLastError()).isNull();
+    }
+
+    @Test
     void jobsScheduledInFutureAreNotClaimed() {
         // markFailed 会把 scheduled_at 推到将来，这类任务不应被立即重新抢占
         Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
         claimService.claim("worker-1", 10, Duration.ofMinutes(5));
-        claimService.recordFailure(id, "网络超时");
+        claimService.recordFailure(id, "worker-1", "网络超时");
 
         List<Job> claimed = claimService.claim("worker-2", 10, Duration.ofMinutes(5));
 

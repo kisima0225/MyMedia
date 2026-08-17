@@ -1,6 +1,8 @@
 package com.mymedia.jobs;
 
 import com.mymedia.shared.NotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -8,12 +10,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 class JobClaimService {
 
     /** 首次重试等待 30 秒，其后每次翻倍：30s、60s、120s…… */
     private static final Duration BASE_BACKOFF = Duration.ofSeconds(30);
+    private static final Logger log = LoggerFactory.getLogger(JobClaimService.class);
 
     private final JobRepository repository;
 
@@ -54,23 +58,39 @@ class JobClaimService {
     }
 
     @Transactional
-    void recordSuccess(Long jobId) {
-        load(jobId).markSucceeded();
+    void recordSuccess(Long jobId, String owner) {
+        Job job = loadOwnedRunning(jobId, owner);
+        if (job != null) {
+            job.markSucceeded();
+        }
     }
 
     /**
      * 记录一次失败。未达最大尝试次数则按指数退避推迟重试，否则终结为 FAILED。
      */
     @Transactional
-    void recordFailure(Long jobId, String error) {
-        Job job = load(jobId);
+    void recordFailure(Long jobId, String owner, String error) {
+        Job job = loadOwnedRunning(jobId, owner);
+        if (job == null) {
+            return;
+        }
         long multiplier = 1L << Math.min(job.getAttempts() - 1, 10);   // 上限约 8.5 小时
         Instant nextAttemptAt = Instant.now().plus(BASE_BACKOFF.multipliedBy(multiplier));
         job.markFailed(error, nextAttemptAt);
     }
 
-    private Job load(Long jobId) {
-        return repository.findById(jobId)
+    private Job loadOwnedRunning(Long jobId, String owner) {
+        Job job = repository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new NotFoundException("找不到任务 id=" + jobId));
+        Instant leaseExpiresAt = job.getLeaseExpiresAt();
+        if (job.getStatus() != JobStatus.RUNNING
+                || !Objects.equals(owner, job.getLeaseOwner())
+                || leaseExpiresAt == null
+                || !leaseExpiresAt.isAfter(Instant.now())) {
+            log.warn("忽略任务更新 id={}，请求 owner={}，当前 status={}、leaseOwner={}、leaseExpiresAt={}",
+                    jobId, owner, job.getStatus(), job.getLeaseOwner(), leaseExpiresAt);
+            return null;
+        }
+        return job;
     }
 }

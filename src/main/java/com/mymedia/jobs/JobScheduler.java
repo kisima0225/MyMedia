@@ -62,16 +62,16 @@ class JobScheduler {
         if (handler == null) {
             String message = "没有注册处理该类型的 JobHandler: " + job.getType();
             log.error(message);
-            claimService.recordFailure(job.getId(), message);
+            claimService.recordFailure(job.getId(), workerId, message);
             return;
         }
         try {
             handler.handle(job);
-            claimService.recordSuccess(job.getId());
+            claimService.recordSuccess(job.getId(), workerId);
             log.debug("任务完成 id={} type={}", job.getId(), job.getType());
         } catch (Exception e) {
-            log.warn("任务失败 id={} type={}，将按退避重试", job.getId(), job.getType(), e);
-            claimService.recordFailure(job.getId(), describe(e));
+            log.warn("任务失败 id={} type={}，已记录失败结果", job.getId(), job.getType(), e);
+            claimService.recordFailure(job.getId(), workerId, describe(e));
         }
     }
 
