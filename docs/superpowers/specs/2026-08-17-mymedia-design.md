@@ -45,14 +45,42 @@
 
 | 组件 | 版本 | 验证方式 |
 |---|---|---|
-| Spring Boot | `4.1.0.RELEASE` | Spring Initializr metadata 当前默认版本 |
+| Spring Boot | **`4.1.0`** | Maven Central `maven-metadata.xml` 的 `<release>` 标签；构件 pom 实测 HTTP 200 |
 | Java | `25`（本机已装 JDK 25.0.3 LTS） | Initializr 支持 17/21/25/26 |
-| Spring Modulith | `2.1.0` | 由 Boot 4.1.0 的 BOM 管理；Initializr 声明兼容区间 `[4.0.0.RELEASE, 4.2.0.M1)` |
-| PostgreSQL | 17（Docker 镜像） | — |
+| Spring Modulith | **`2.1.0`** | Maven Central `maven-metadata.xml` 的 `<release>` 标签 |
+| PostgreSQL | 17（Docker 镜像） | 待 P0 实测（见 §7.7） |
 | Maven | 3.9.9（IDEA 自带） | 本机已装 |
 | ffmpeg / ffprobe | 烘焙进应用 Docker 镜像 | 本机未装，不要求所有者安装 |
 
-**Spring Boot 3.x 已退出 Initializr 的可选版本列表**（当前仅提供 4.0.x 与 4.1.x），新项目没有退路。
+#### ⚠ 版本号陷阱：`4.1.0` 而非 `4.1.0.RELEASE`
+
+Spring Initializr 的 metadata 与生成的 `pom.xml` 中，Boot 版本写作 **`4.1.0.RELEASE`**——这是 Initializr 的**内部版本 ID 格式，不是 Maven 坐标**。直接使用会导致：
+
+```
+Could not find artifact org.springframework.boot:spring-boot-starter-parent:pom:4.1.0.RELEASE
+```
+
+实测结果：
+
+| 版本字符串 | Maven Central | 结论 |
+|---|---|---|
+| `4.1.0.RELEASE` | **404** | Initializr 内部 ID，不可用 |
+| `4.1.0` | **200** | ✅ 正确坐标 |
+
+**从 start.spring.io 下载的骨架必须先把 parent 版本改成 `4.1.0` 才能构建。**
+
+#### 权威版本源
+
+`search.maven.org` 的 solr 搜索索引**陈旧且不完整**——查询时它最新只返回到 Boot 3.5.3，完全没有 4.x，会误导人以为 Boot 4 尚未发布。
+
+**唯一权威源是 `maven-metadata.xml`**：
+
+```bash
+curl -s https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-parent/maven-metadata.xml
+# <latest>4.1.0</latest>  <release>4.1.0</release>
+```
+
+Spring Boot 3.x 仍在 Maven Central（最新 3.5.6），但**已退出 Initializr 的可选版本列表**（当前仅提供 4.0.x 与 4.1.x），新项目应使用 4.1.0。
 
 ### 3.2 Boot 4.x 的 starter 改名 —— 执行 agent 必读
 
@@ -65,6 +93,15 @@ Boot 4 大幅调整了 starter 命名。绝大多数教程与训练数据仍是 
 | `spring-boot-starter-test` | 拆分为 `spring-boot-starter-webmvc-test`、`-data-jpa-test`、`-security-test`、`-validation-test`、`-actuator-test`、`-flyway-test` |
 | `org.testcontainers:postgresql` | `org.testcontainers:testcontainers-postgresql` |
 | `org.testcontainers:junit-jupiter` | `org.testcontainers:testcontainers-junit-jupiter` |
+
+Testcontainers 也升到了 2.x，**包名随之改变**（实测自生成骨架）：
+
+| 1.x 写法（错误） | 2.x 正确写法 |
+|---|---|
+| `org.testcontainers.containers.PostgreSQLContainer` | `org.testcontainers.postgresql.PostgreSQLContainer` |
+| `PostgreSQLContainer<?>`（泛型） | `PostgreSQLContainer`（非泛型，不带类型参数） |
+
+另注：Initializr 的**依赖 ID 仍是 `web`**（不是 `webmvc`），但它生成的 artifact 是 `spring-boot-starter-webmvc`。用 `dependencies=webmvc` 请求会返回 HTTP 400。
 
 **实施计划中必须内联一份从 Spring Initializr 实测生成的完整 `pom.xml`，令执行 agent 照抄而非照记忆生成。**
 
