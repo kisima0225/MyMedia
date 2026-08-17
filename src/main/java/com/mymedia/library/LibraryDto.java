@@ -2,19 +2,20 @@ package com.mymedia.library;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
-public final class LibraryDto {
+final class LibraryDto {
 
     private LibraryDto() {
     }
 
-    public record CreateRequest(
-            @NotBlank String name,
+    record CreateRequest(
+            @NotBlank @Size(max = 128) String name,
             @NotNull LibraryDomain domain,
             @NotBlank String rootPath) {
     }
 
-    public record Response(
+    record Response(
             Long id,
             String name,
             LibraryDomain domain,

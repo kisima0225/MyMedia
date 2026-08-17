@@ -40,7 +40,7 @@ curl -s -u admin:admin -X POST http://localhost:8080/api/libraries \
   -d '{"name":"电影","domain":"VIDEO","rootPath":"/media/movies"}'
 ```
 
-PowerShell 调用 `curl.exe` 时，需要保留 JSON 属性引号；可以使用 `'{\"name\":\"电影\",\"domain\":\"VIDEO\",\"rootPath\":\"/media/movies\"}'` 作为 `-d` 参数。
+PowerShell 调用 `curl.exe` 时，需要保留 JSON 属性引号；单引号字符串不需要反斜杠转义，可以使用 `'{"name":"电影","domain":"VIDEO","rootPath":"/media/movies"}'` 作为 `-d` 参数。
 
 ## 架构
 

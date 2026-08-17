@@ -15,6 +15,7 @@ import java.util.UUID;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -108,5 +109,38 @@ class LibraryControllerTest extends AbstractIntegrationTest {
                                 {"name":"音乐","domain":"AUDIO","rootPath":"%s"}
                                 """.formatted(uniquePath())))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsNameLongerThanDatabaseColumn() throws Exception {
+        String admin = uniqueName();
+        registrationService.register(admin, "pw", UserRole.ADMIN);
+
+        mockMvc.perform(post("/api/libraries")
+                        .with(httpBasic(admin, "pw"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"%s","domain":"VIDEO","rootPath":"%s"}
+                                """.formatted("a".repeat(129), uniquePath())))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void duplicateRootPathReturnsConflictProblemDetail() throws Exception {
+        String admin = uniqueName();
+        String rootPath = uniquePath();
+        registrationService.register(admin, "pw", UserRole.ADMIN);
+        libraryService.create("已存在", LibraryDomain.VIDEO, rootPath);
+
+        mockMvc.perform(post("/api/libraries")
+                        .with(httpBasic(admin, "pw"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"重复路径","domain":"VIDEO","rootPath":"%s"}
+                                """.formatted(rootPath)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("请求与现有数据冲突"));
     }
 }

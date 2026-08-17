@@ -33,6 +33,7 @@ mymedia:
     username: admin
     password: admin      # 仅用于本地演示，生产部署必须通过环境变量覆盖
   jobs:
+    enabled: true            # 生产默认启用；集成测试基类显式关闭
     poll-interval: PT5S      # 轮询间隔
     batch-size: 5            # 单次抢占的任务数
     lease-duration: PT10M    # 租约时长，超时视为 worker 已死

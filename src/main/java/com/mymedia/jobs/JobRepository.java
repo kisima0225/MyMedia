@@ -17,13 +17,6 @@ interface JobRepository extends JpaRepository<Job, Long> {
     @Query("select j from Job j where j.id = :id")
     Optional<Job> findByIdForUpdate(@Param("id") Long id);
 
-    @Query("""
-            SELECT j FROM Job j
-            WHERE j.dedupKey = :dedupKey AND j.status IN (
-                com.mymedia.jobs.JobStatus.PENDING, com.mymedia.jobs.JobStatus.RUNNING)
-            """)
-    Optional<Job> findActiveByDedupKey(@Param("dedupKey") String dedupKey);
-
     /**
      * FOR UPDATE SKIP LOCKED 是 PostgreSQL 的行级抢占原语：
      * 多个 worker 并发执行这条查询时，各自跳过已被他人锁住的行，

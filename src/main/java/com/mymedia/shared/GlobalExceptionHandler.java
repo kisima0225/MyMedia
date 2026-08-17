@@ -1,5 +1,6 @@
 package com.mymedia.shared;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -16,5 +17,10 @@ class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "请求与现有数据冲突");
     }
 }

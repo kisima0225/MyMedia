@@ -1,8 +1,10 @@
 package com.mymedia.jobs;
 
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -12,10 +14,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Component
+@ConditionalOnProperty(prefix = "mymedia.jobs", name = "enabled", havingValue = "true", matchIfMissing = true)
 class JobScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(JobScheduler.class);
@@ -25,6 +31,8 @@ class JobScheduler {
     private final String workerId;
     private final int batchSize;
     private final Duration leaseDuration;
+    private final ExecutorService executor = Executors.newThreadPerTaskExecutor(
+            Thread.ofVirtual().name("mymedia-job-", 0).factory());
 
     JobScheduler(JobClaimService claimService,
                  List<JobHandler> handlers,
@@ -53,7 +61,20 @@ class JobScheduler {
 
         List<Job> claimed = claimService.claim(workerId, batchSize, leaseDuration);
         for (Job job : claimed) {
-            execute(job);
+            executor.submit(() -> execute(job));
+        }
+    }
+
+    @PreDestroy
+    void shutdown() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -70,7 +91,7 @@ class JobScheduler {
             claimService.recordSuccess(job.getId(), workerId);
             log.debug("任务完成 id={} type={}", job.getId(), job.getType());
         } catch (Exception e) {
-            log.warn("任务失败 id={} type={}，已记录失败结果", job.getId(), job.getType(), e);
+            log.warn("任务处理异常 id={} type={}，将尝试更新任务状态", job.getId(), job.getType(), e);
             claimService.recordFailure(job.getId(), workerId, describe(e));
         }
     }
