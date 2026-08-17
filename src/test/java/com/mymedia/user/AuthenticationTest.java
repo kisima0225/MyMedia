@@ -51,6 +51,12 @@ class AuthenticationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void defaultAdminCanAccessProtectedEndpoint() throws Exception {
+        mockMvc.perform(get("/api/libraries").with(httpBasic("admin", "admin")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void protectedEndpointRejectsWrongPassword() throws Exception {
         mockMvc.perform(get("/api/libraries").with(httpBasic("dave", "wrong")))
                 .andExpect(status().isUnauthorized());

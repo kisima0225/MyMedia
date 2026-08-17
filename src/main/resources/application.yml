@@ -29,6 +29,9 @@ logging:
     com.mymedia: DEBUG
 
 mymedia:
+  admin:
+    username: admin
+    password: admin      # 仅用于本地演示，生产部署必须通过环境变量覆盖
   jobs:
     poll-interval: PT5S      # 轮询间隔
     batch-size: 5            # 单次抢占的任务数
