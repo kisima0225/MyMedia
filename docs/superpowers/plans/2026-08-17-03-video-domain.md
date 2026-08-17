@@ -1671,14 +1671,16 @@ git commit -m "feat: 添加视频文件名解析器
 
 **Files:**
 - Create: `src/main/java/com/mymedia/video/VideoContentBuilder.java`
+- Create: `src/main/java/com/mymedia/video/VideoScanFinalizer.java`
 - Create: `src/main/java/com/mymedia/video/event/VideoItemCreated.java`
 - Test: `src/test/java/com/mymedia/video/VideoContentBuilderTest.java`
 
 **Interfaces:**
-- Consumes: `LibraryContentBuilder`、`ScannedFileDiscovered`、`ScannedFileVanished`、`ScannedFileQueryService`（计划 02 Task 1、7）、`VideoFilenameParser`（Task 4）、各仓储（Task 3）
+- Consumes: `LibraryContentBuilder`、`ScannedFileDiscovered`、`ScannedFileVanished`、`LibraryScanCompleted`、`ScannedFileQueryService`（计划 02 Task 1、6、7）、`VideoFilenameParser`（Task 4）、各仓储（Task 3）
 - Produces:
   - `public record VideoItemCreated(Long itemId, Long libraryId, String title)`
   - `VideoContentBuilder implements LibraryContentBuilder`（package-private，Spring bean）
+  - `VideoScanFinalizer`（package-private，Spring bean）— `@EventListener void onScanCompleted(LibraryScanCompleted event)`，回收无文件的孤儿条目
 
 - [ ] **Step 1: 写会失败的测试**
 
@@ -1832,6 +1834,22 @@ class VideoContentBuilderTest extends AbstractIntegrationTest {
         assertThat(catalogService.filesOf(item.getId()))
                 .extracting(VideoFile::getId)
                 .containsExactly(videoFileId);
+    }
+
+    @Test
+    void renamingLeavesNoOrphanItem() throws IOException {
+        MediaLibrary library = libraryAtRoot();
+        writeMedia("电影/旧名.mkv");
+        scan(library.getId());
+
+        Files.move(root.resolve("电影/旧名.mkv"), root.resolve("电影/新名.mkv"));
+        scan(library.getId());
+
+        // 扫描先发布「发现新文件」、随后改名配对才把新记录删掉，
+        // 这中间已经按新文件名建好了一个条目。配对成功后 video_file 随
+        // scanned_file 级联删除，那个条目会作为无文件的孤儿留下来。
+        // 重命名一部电影不该让列表里多出一条空条目。
+        assertThat(catalogService.findByLibrary(library.getId())).hasSize(1);
     }
 }
 ```
@@ -2113,7 +2131,70 @@ class ContentBuilderDispatcher {
 }
 ```
 
-- [ ] **Step 7: 运行测试确认通过并提交**
+- [ ] **Step 7: 回收改名留下的孤儿条目**
+
+`src/main/java/com/mymedia/video/VideoScanFinalizer.java`：
+
+```java
+package com.mymedia.video;
+
+import com.mymedia.library.LibraryDomain;
+import com.mymedia.library.LibraryService;
+import com.mymedia.scan.event.LibraryScanCompleted;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 一次扫描结束后回收无文件的孤儿条目。
+ *
+ * <p>孤儿是怎么产生的：扫描<b>先</b>发布「发现新文件」事件、<b>后</b>做改名配对。
+ * 一个文件被改名时，新路径先作为新文件被发现，{@link VideoContentBuilder} 已经
+ * 按新文件名建好了条目；随后改名配对成功，刚插入的 {@code scanned_file} 被删除，
+ * {@code video_file} 随之级联删除——那个条目就空在那里了。
+ * 不清掉它，重命名一部电影会让条目列表里多出一条点不开的空条目。
+ *
+ * <p>为什么这样安全：文件<b>消失</b>时物理层只标记 {@code MISSING}，
+ * {@code video_file} 行仍在，所以外接盘没挂载不会让条目被误删。
+ * 只有真正一个文件都不剩的条目才会被回收。
+ */
+@Component
+class VideoScanFinalizer {
+
+    private static final Logger log = LoggerFactory.getLogger(VideoScanFinalizer.class);
+
+    private final LibraryService libraryService;
+    private final JdbcTemplate jdbc;
+
+    VideoScanFinalizer(LibraryService libraryService, JdbcTemplate jdbc) {
+        this.libraryService = libraryService;
+        this.jdbc = jdbc;
+    }
+
+    @EventListener
+    @Transactional
+    void onScanCompleted(LibraryScanCompleted event) {
+        if (libraryService.getById(event.libraryId()).getDomain() != LibraryDomain.VIDEO) {
+            return;
+        }
+        int removed = jdbc.update("""
+                DELETE FROM video_item i
+                WHERE i.library_id = ?
+                  AND NOT EXISTS (SELECT 1 FROM video_file f WHERE f.item_id = i.id)
+                """, event.libraryId());
+        if (removed > 0) {
+            log.info("回收无文件的孤儿视频条目 libraryId={} count={}", event.libraryId(), removed);
+        }
+    }
+}
+```
+
+> **`video_group` 不需要单独处理**：它对 `video_item` 是 `ON DELETE CASCADE`，条目一删分组跟着走。
+
+- [ ] **Step 8: 运行测试确认通过并提交**
 
 先完成 Task 6 的 `VideoFolderIndexer` 再运行——本任务依赖它。
 
@@ -2141,10 +2222,13 @@ git add src/main/java/com/mymedia src/test/java/com/mymedia/video/VideoContentBu
 git commit -m "feat: 实现视频域语义层构建
 
 按标题归并条目、出现季集即提升为 GROUPED、幂等重扫。
-分派器通过 Spring 注入拿到全部 SPI 实现，scan 不知道具体实现类。"
+分派器通过 Spring 注入拿到全部 SPI 实现，scan 不知道具体实现类。
+扫描收尾回收改名过程中留下的无文件孤儿条目——
+扫描先发事件后配对，中间会按新文件名建出一个条目，
+配对成功后它的文件被级联删掉，条目却留了下来。"
 ```
 
-Expected: `EXIT=0`，`Tests run: 6, Failures: 0`
+Expected: `EXIT=0`，`Tests run: 7, Failures: 0`
 
 ---
 
@@ -4121,5 +4205,10 @@ git commit -m "feat: 完成视频域阶段
 | `VideoProgress` + `getVideoFileId/getPositionSeconds/isCompleted` | Task 9 | Task 9 | ✓ |
 | `JobPoller.pollOnce()`（计划 02 引入） | 计划 02 Task 7 | Task 5、6、8、9 的测试 | ✓ |
 | `LibraryContentBuilder`（计划 02 定义） | 计划 02 Task 7 | Task 5 实现 | ✓ |
+| `VideoScanFinalizer.onScanCompleted(LibraryScanCompleted)` | Task 5 Step 7 | 事件驱动，无显式调用方 | ✓ |
 
-**编写中发现并已处理的一处**：Task 5 的 `VideoContentBuilder` 依赖 `VideoFolderIndexer`，而后者属于 Task 6。已在 Task 5 Step 7 给出临时空实现并明确标注 Task 6 替换，使两个任务都能独立通过各自的测试。
+**编写中发现并已处理的两处**
+
+1. Task 5 的 `VideoContentBuilder` 依赖 `VideoFolderIndexer`，而后者属于 Task 6。已在 Task 5 Step 8 给出临时空实现并明确标注 Task 6 替换，使两个任务都能独立通过各自的测试。
+
+2. **改名会留下无文件的孤儿条目**（补录于编写计划 04 时）。扫描先发布「发现新文件」、后做改名配对：一个文件被改名时，新路径先作为新文件被发现，`VideoContentBuilder` 已按新文件名建好条目；随后配对成功、刚插入的 `scanned_file` 被删除，`video_file` 随之级联删除，条目却留了下来——重命名一部电影会让 `GET /api/video/items` 多出一条点不开的空条目。原来的 `renamingFileKeepsTheSameVideoFileRow` 只断言了原条目的文件没变，照不到这个。已补 Task 5 Step 7 的 `VideoScanFinalizer` 与 `renamingLeavesNoOrphanItem` 测试。图片域在计划 04 Task 5 用「回收零页零子节点的目录节点」解决同一类问题。
