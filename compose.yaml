@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: 'postgres:17'
+    container_name: mymedia-postgres
+    environment:
+      POSTGRES_DB: mymedia
+      POSTGRES_USER: mymedia
+      POSTGRES_PASSWORD: mymedia
+    ports:
+      - '5432:5432'
+    volumes:
+      - mymedia-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mymedia -d mymedia']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mymedia-pgdata:
