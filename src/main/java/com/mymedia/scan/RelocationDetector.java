@@ -30,21 +30,11 @@ class RelocationDetector {
     }
 
     /**
-     * @param newlyAddedIds ids inserted by the current reconciliation
-     * @return the number of pairs treated as relocations
-     */
-    @Transactional
-    int detectAndApply(Long libraryId, Path libraryRoot, List<Long> newlyAddedIds) {
-        List<Long> missingIds = repository.findMissing(libraryId).stream()
-                .map(ScannedFile::getId)
-                .toList();
-        return detectAndApply(libraryId, libraryRoot, newlyAddedIds, missingIds);
-    }
-
-    /**
      * Pairs only files that became missing during the current reconciliation.
      *
+     * @param newlyAddedIds ids inserted by the current reconciliation
      * @param newlyVanishedIds ids that were ACTIVE before this scan and MISSING after reconciliation
+     * @return the number of pairs treated as relocations
      */
     @Transactional
     int detectAndApply(Long libraryId, Path libraryRoot, List<Long> newlyAddedIds,
