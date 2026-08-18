@@ -63,6 +63,19 @@ class ScanReconcilerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void subMicrosecondMtimeRemainsUnchangedAfterPersistence() {
+        MediaLibrary library = newLibrary();
+        Instant mtime = Instant.parse("2026-08-18T00:00:00.123456789Z");
+        reconciler.reconcile(library.getId(), List.of(entry("a.mkv", 100, mtime)));
+
+        ScanOutcome second = reconciler.reconcile(library.getId(),
+                List.of(entry("a.mkv", 100, mtime)));
+
+        assertThat(second.unchanged()).isEqualTo(1);
+        assertThat(second.updated()).isZero();
+    }
+
+    @Test
     void changedSizeMarksFileUpdated() {
         MediaLibrary library = newLibrary();
         Instant mtime = Instant.now().truncatedTo(ChronoUnit.MILLIS);

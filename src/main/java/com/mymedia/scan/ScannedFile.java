@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 @Entity
 @Table(name = "scanned_file")
@@ -58,7 +59,7 @@ public class ScannedFile {
         this.libraryId = libraryId;
         this.relativePath = relativePath;
         this.sizeBytes = sizeBytes;
-        this.mtime = mtime;
+        this.mtime = toPostgresPrecision(mtime);
         this.extension = extension;
     }
 
@@ -79,7 +80,7 @@ public class ScannedFile {
 
     void updateContent(long sizeBytes, Instant mtime, Instant seenAt) {
         this.sizeBytes = sizeBytes;
-        this.mtime = mtime;
+        this.mtime = toPostgresPrecision(mtime);
         this.contentHash = null;      // 内容变了，旧哈希作废
         touch(seenAt);
     }
@@ -99,5 +100,9 @@ public class ScannedFile {
 
     void assignContentHash(String hash) {
         this.contentHash = hash;
+    }
+
+    static Instant toPostgresPrecision(Instant value) {
+        return value.truncatedTo(ChronoUnit.MICROS);
     }
 }

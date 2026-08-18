@@ -60,6 +60,6 @@ class ScanReconciler {
     /** Size or modification time changes invalidate the stored content hash. */
     private static boolean isContentChanged(ScannedFile existing, ScannedEntry entry) {
         return existing.getSizeBytes() != entry.sizeBytes()
-                || !existing.getMtime().equals(entry.mtime());
+                || !existing.getMtime().equals(ScannedFile.toPostgresPrecision(entry.mtime()));
     }
 }
