@@ -112,6 +112,28 @@ class RelocationDetectorTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void historicalMissingFileIsNotUsedForRelocation() throws IOException {
+        MediaLibrary library = libraryAtRoot();
+        writeMedia("旧位置.mkv", 7L);
+        scanner.scan(library.getId());
+        Long originalId = queryService.findByPath(library.getId(), "旧位置.mkv")
+                .orElseThrow().getId();
+
+        Files.delete(root.resolve("旧位置.mkv"));
+        scanner.scan(library.getId());
+
+        writeMedia("新文件.mkv", 7L); // 与历史 MISSING 文件内容相同，但不是本轮移动
+        ScanOutcome outcome = scanner.scan(library.getId());
+
+        assertThat(outcome.relocated()).isZero();
+        assertThat(outcome.added()).isEqualTo(1);
+        assertThat(queryService.findByPath(library.getId(), "新文件.mkv")
+                .orElseThrow().getId()).isNotEqualTo(originalId);
+        assertThat(queryService.findByPath(library.getId(), "旧位置.mkv")
+                .orElseThrow().getStatus()).isEqualTo(ScannedFileStatus.MISSING);
+    }
+
+    @Test
     void copyThenDeleteOriginalIsDetectedAsRelocation() throws IOException {
         // 用户先复制到新位置、再删掉旧的 —— 从扫描视角与移动无法区分，
         // 判成移动是正确行为：内容相同，保留进度才是用户想要的。

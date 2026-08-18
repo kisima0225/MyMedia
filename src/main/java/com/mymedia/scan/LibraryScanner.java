@@ -78,6 +78,11 @@ class LibraryScanner {
                 .map(ScannedFile::getId)
                 .filter(id -> !beforeIds.contains(id))
                 .toList();
+        List<Long> newlyVanishedIds = afterReconcile.stream()
+                .filter(file -> beforeActiveIds.contains(file.getId()))
+                .filter(file -> file.getStatus() == ScannedFileStatus.MISSING)
+                .map(ScannedFile::getId)
+                .toList();
 
         for (ScannedFile file : afterReconcile) {
             if (file.getStatus() == ScannedFileStatus.ACTIVE) {
@@ -85,7 +90,8 @@ class LibraryScanner {
             }
         }
 
-        int relocated = relocationDetector.detectAndApply(libraryId, root, newlyAddedIds);
+        int relocated = relocationDetector.detectAndApply(
+                libraryId, root, newlyAddedIds, newlyVanishedIds);
         ScanOutcome finalOutcome = outcome.withRelocated(relocated);
         publishFinalEvents(libraryId, entries, beforeActiveIds, newlyAddedIds);
 
