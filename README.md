@@ -79,6 +79,10 @@ flowchart TD
 - 无权媒体库统一返回 `404`，避免泄露资源存在性
 - PostgreSQL `job` 表、去重入队、`FOR UPDATE SKIP LOCKED` 抢占、租约回收、重试退避和 owner-fenced 回写
 - PostgreSQL `pg_trgm` 扩展验收与 Testcontainers 真实数据库集成测试
+- 目录扫描：递归发现媒体文件并忽略 NFO 等非媒体文件
+- 增量对账：按 size + mtime 更新 `scanned_file`，并保留 `MISSING` 记录
+- 改名与移动检测：用采样哈希匹配新旧路径并保留物理文件 id
+- 符号链接环防护：通过真实路径去重、最大深度和访问失败剪枝避免无限递归
 
 ## 路线图
 
