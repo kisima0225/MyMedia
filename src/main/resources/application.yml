@@ -37,3 +37,5 @@ mymedia:
     poll-interval: PT5S      # 轮询间隔
     batch-size: 5            # 单次抢占的任务数
     lease-duration: PT10M    # 租约时长，超时视为 worker 已死
+  scan:
+    max-depth: 32            # 遍历最大深度，防御异常深的目录结构

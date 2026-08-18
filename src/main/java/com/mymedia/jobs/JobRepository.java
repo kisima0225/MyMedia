@@ -43,4 +43,22 @@ interface JobRepository extends JpaRepository<Job, Long> {
             WHERE status = 'RUNNING' AND lease_expires_at < :now
             """, nativeQuery = true)
     int reclaimExpiredLeases(@Param("now") Instant now);
+
+    /**
+     * 只有仍然拥有未过期 RUNNING 租约的 worker 才能续期，避免旧 worker
+     * 在任务被回收并重新分配后覆盖新 owner 的租约。
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE job
+            SET lease_expires_at = :leaseExpiresAt
+            WHERE id = :id
+              AND status = 'RUNNING'
+              AND lease_owner = :owner
+              AND lease_expires_at > :now
+            """, nativeQuery = true)
+    int renewLease(@Param("id") Long id,
+                   @Param("owner") String owner,
+                   @Param("now") Instant now,
+                   @Param("leaseExpiresAt") Instant leaseExpiresAt);
 }

@@ -41,6 +41,17 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void currentOwnerCanRenewAnUnexpiredLease() {
+        Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
+        claimService.claim("worker-1", 10, Duration.ofSeconds(5));
+        Instant originalExpiry = jobQueue.findById(id).getLeaseExpiresAt();
+
+        assertThat(claimService.renewLease(id, "worker-1", Duration.ofMinutes(5))).isTrue();
+
+        assertThat(jobQueue.findById(id).getLeaseExpiresAt()).isAfter(originalExpiry);
+    }
+
+    @Test
     void concurrentWorkersNeverClaimTheSameJob() throws Exception {
         int jobCount = 40;
         for (int i = 0; i < jobCount; i++) {
@@ -111,6 +122,21 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
         assertThat(job.getLeaseOwner()).isEqualTo("worker-b");
         assertThat(job.getAttempts()).isEqualTo(2);
         assertThat(job.getLastError()).isNull();
+    }
+
+    @Test
+    void staleWorkerCannotRenewLeaseAfterItWasReassigned() {
+        Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
+
+        claimService.claim("worker-a", 100, Duration.ofSeconds(-1));
+        claimService.reclaimExpiredLeases();
+        claimService.claim("worker-b", 100, Duration.ofMinutes(5));
+
+        assertThat(claimService.renewLease(id, "worker-a", Duration.ofMinutes(5))).isFalse();
+
+        Job job = jobQueue.findById(id);
+        assertThat(job.getStatus()).isEqualTo(JobStatus.RUNNING);
+        assertThat(job.getLeaseOwner()).isEqualTo("worker-b");
     }
 
     @Test

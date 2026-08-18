@@ -44,7 +44,7 @@ PowerShell 调用 `curl.exe` 时，需要保留 JSON 属性引号；单引号字
 
 ## 架构
 
-这是一个模块化单体，而不是按服务拆分的微服务。顶层包就是模块，当前由 `shared`、`user`、`library`、`jobs` 四个模块组成；实现类和 repository 默认保持 package-private，跨模块只依赖公开 API。`ApplicationModules.verify()` 在测试阶段强制依赖边界，`Documenter` 自动生成模块图和 AsciiDoc 说明。
+这是一个模块化单体，而不是按服务拆分的微服务。顶层包就是模块，当前由 `shared`、`user`、`library`、`jobs`、`scan` 五个模块组成；实现类和 repository 默认保持 package-private，跨模块只依赖公开 API。`ApplicationModules.verify()` 在测试阶段强制依赖边界，`Documenter` 自动生成模块图和 AsciiDoc 说明。
 
 构建后查看原始图和模块文档：
 
@@ -59,18 +59,22 @@ flowchart TD
     user[User]
     library[Library]
     jobs[Jobs]
+    scan[Scan]
     shared[Shared]
     user --> shared
     library --> shared
     library --> user
     jobs --> shared
+    scan --> shared
+    scan --> library
+    scan --> jobs
 ```
 
 数据层同样按边界分工：Flyway 迁移创建 `users`、`libraries`、`library_access` 和 `job`；媒体域使用 `libraries.domain` 加复合外键锚点，任务域用 PostgreSQL 行锁实现持久化队列。关键决策见 [ADR-001](docs/adr/ADR-001-域分区的数据库级强制.md)、[ADR-002](docs/adr/ADR-002-认证方案.md) 和 [ADR-003](docs/adr/ADR-003-用数据库任务表替代消息队列.md)。
 
 ## 已实现功能
 
-- Spring Modulith 四模块边界验证与自动架构文档
+- Spring Modulith 五模块边界验证与自动架构文档
 - Spring Boot Actuator health、Docker Compose PostgreSQL 17、Flyway 迁移
 - HTTP Basic 无状态认证、`ADMIN` / `USER` 角色和 bcrypt 密码哈希
 - fresh database 的幂等初始管理员引导，用户名和密码支持环境变量覆盖
@@ -79,6 +83,10 @@ flowchart TD
 - 无权媒体库统一返回 `404`，避免泄露资源存在性
 - PostgreSQL `job` 表、去重入队、`FOR UPDATE SKIP LOCKED` 抢占、租约回收、重试退避和 owner-fenced 回写
 - PostgreSQL `pg_trgm` 扩展验收与 Testcontainers 真实数据库集成测试
+- 目录扫描：递归发现媒体文件并忽略 NFO 等非媒体文件
+- 增量对账：按 size + mtime 更新 `scanned_file`，并保留 `MISSING` 记录
+- 改名与移动检测：用采样哈希匹配新旧路径并保留物理文件 id
+- 符号链接环防护：通过真实路径去重、最大深度和访问失败剪枝避免无限递归
 
 ## 路线图
 

@@ -16,13 +16,15 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Component
 @ConditionalOnProperty(prefix = "mymedia.jobs", name = "enabled", havingValue = "true", matchIfMissing = true)
-class JobScheduler {
+class JobScheduler implements JobPoller {
 
     private static final Logger log = LoggerFactory.getLogger(JobScheduler.class);
 
@@ -33,6 +35,8 @@ class JobScheduler {
     private final Duration leaseDuration;
     private final ExecutorService executor = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("mymedia-job-", 0).factory());
+    private final ScheduledExecutorService heartbeatExecutor = Executors.newScheduledThreadPool(
+            1, Thread.ofVirtual().name("mymedia-lease-", 0).factory());
 
     JobScheduler(JobClaimService claimService,
                  List<JobHandler> handlers,
@@ -53,7 +57,8 @@ class JobScheduler {
     }
 
     /** 供测试直接触发一轮轮询，避免依赖定时器时序。 */
-    void pollOnce() {
+    @Override
+    public void pollOnce() {
         int reclaimed = claimService.reclaimExpiredLeases();
         if (reclaimed > 0) {
             log.warn("回收了 {} 个租约过期的任务", reclaimed);
@@ -75,6 +80,8 @@ class JobScheduler {
         } catch (InterruptedException e) {
             executor.shutdownNow();
             Thread.currentThread().interrupt();
+        } finally {
+            heartbeatExecutor.shutdownNow();
         }
     }
 
@@ -86,13 +93,51 @@ class JobScheduler {
             claimService.recordFailure(job.getId(), workerId, message);
             return;
         }
+        ScheduledFuture<?> heartbeat = null;
         try {
+            heartbeat = scheduleHeartbeat(job);
             handler.handle(job);
             claimService.recordSuccess(job.getId(), workerId);
             log.debug("任务完成 id={} type={}", job.getId(), job.getType());
         } catch (Exception e) {
             log.warn("任务处理异常 id={} type={}，将尝试更新任务状态", job.getId(), job.getType(), e);
             claimService.recordFailure(job.getId(), workerId, describe(e));
+        } finally {
+            if (heartbeat != null) {
+                heartbeat.cancel(false);
+            }
+        }
+    }
+
+    private ScheduledFuture<?> scheduleHeartbeat(Job job) {
+        long intervalNanos = heartbeatIntervalNanos(leaseDuration);
+        return heartbeatExecutor.scheduleAtFixedRate(
+                () -> renewLease(job), intervalNanos, intervalNanos, TimeUnit.NANOSECONDS);
+    }
+
+    private void renewLease(Job job) {
+        try {
+            if (!claimService.renewLease(job.getId(), workerId, leaseDuration)) {
+                log.warn("任务续租失败，任务可能已被其他 worker 接管 id={} owner={}",
+                        job.getId(), workerId);
+            }
+        } catch (RuntimeException e) {
+            log.warn("任务续租异常 id={} owner={}", job.getId(), workerId, e);
+        }
+    }
+
+    private static long heartbeatIntervalNanos(Duration duration) {
+        if (duration.isZero() || duration.isNegative()) {
+            return 1L;
+        }
+        Duration interval = duration.dividedBy(3);
+        if (interval.isZero()) {
+            return 1L;
+        }
+        try {
+            return Math.max(1L, interval.toNanos());
+        } catch (ArithmeticException e) {
+            return Long.MAX_VALUE;
         }
     }
 
