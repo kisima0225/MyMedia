@@ -1,6 +1,7 @@
 package com.mymedia.scan.spi;
 
 import com.mymedia.library.LibraryDomain;
+import com.mymedia.scan.event.ScannedFileChanged;
 import com.mymedia.scan.event.ScannedFileDiscovered;
 import com.mymedia.scan.event.ScannedFileVanished;
 
@@ -17,6 +18,9 @@ public interface LibraryContentBuilder {
 
     /** 发现新文件时构建语义条目。 */
     void onFileDiscovered(ScannedFileDiscovered event);
+
+    /** 文件元数据变化或从 MISSING 恢复时更新语义条目。 */
+    void onFileChanged(ScannedFileChanged event);
 
     /** 文件消失时把语义条目标记为不可用，不删除条目。 */
     void onFileVanished(ScannedFileVanished event);

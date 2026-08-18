@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -26,7 +27,8 @@ import static org.awaitility.Awaitility.await;
 @Import(JobSchedulerTest.TestHandlers.class)
 @TestPropertySource(properties = {
         "mymedia.jobs.enabled=true",
-        "mymedia.jobs.poll-interval=PT1H"
+        "mymedia.jobs.poll-interval=PT1H",
+        "mymedia.jobs.lease-duration=PT0.3S"
 })
 class JobSchedulerTest extends AbstractIntegrationTest {
 
@@ -119,6 +121,27 @@ class JobSchedulerTest extends AbstractIntegrationTest {
             blockingHandler.release();
             caller.shutdown();
             assertThat(caller.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThat(jobQueue.findById(slowId).getStatus()).isEqualTo(JobStatus.SUCCEEDED));
+        }
+    }
+
+    @Test
+    void renewsLeaseWhileSlowHandlerRuns() {
+        Long slowId = jobQueue.enqueue("TEST_SLOW", "{}", "k" + UUID.randomUUID());
+
+        scheduler.pollOnce();
+
+        await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(blockingHandler.started()).isTrue());
+        Instant originalExpiry = jobQueue.findById(slowId).getLeaseExpiresAt();
+
+        try {
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+                    assertThat(jobQueue.findById(slowId).getLeaseExpiresAt())
+                            .isAfter(originalExpiry));
+        } finally {
+            blockingHandler.release();
             await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
                     assertThat(jobQueue.findById(slowId).getStatus()).isEqualTo(JobStatus.SUCCEEDED));
         }

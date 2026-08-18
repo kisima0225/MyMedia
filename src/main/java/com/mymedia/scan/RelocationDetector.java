@@ -3,7 +3,6 @@ package com.mymedia.scan;
 import com.mymedia.scan.event.ScannedFileRelocated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,11 +21,9 @@ class RelocationDetector {
     private static final Logger log = LoggerFactory.getLogger(RelocationDetector.class);
 
     private final ScannedFileRepository repository;
-    private final ApplicationEventPublisher events;
 
-    RelocationDetector(ScannedFileRepository repository, ApplicationEventPublisher events) {
+    RelocationDetector(ScannedFileRepository repository) {
         this.repository = repository;
-        this.events = events;
     }
 
     /**
@@ -34,13 +31,13 @@ class RelocationDetector {
      *
      * @param newlyAddedIds ids inserted by the current reconciliation
      * @param newlyVanishedIds ids that were ACTIVE before this scan and MISSING after reconciliation
-     * @return the number of pairs treated as relocations
+     * @return the relocation events for pairs applied by this transaction
      */
     @Transactional
-    int detectAndApply(Long libraryId, Path libraryRoot, List<Long> newlyAddedIds,
-                       List<Long> newlyVanishedIds) {
+    List<ScannedFileRelocated> detectAndApply(Long libraryId, List<Long> newlyAddedIds,
+                                              List<Long> newlyVanishedIds) {
         if (newlyAddedIds.isEmpty() || newlyVanishedIds.isEmpty()) {
-            return 0;
+            return List.of();
         }
 
         List<ScannedFile> missing = repository.findAllById(newlyVanishedIds).stream()
@@ -48,7 +45,7 @@ class RelocationDetector {
                 .filter(file -> file.getStatus() == ScannedFileStatus.MISSING)
                 .toList();
         if (missing.isEmpty()) {
-            return 0;
+            return List.of();
         }
 
         Map<Long, List<ScannedFile>> missingBySize = new HashMap<>();
@@ -59,7 +56,7 @@ class RelocationDetector {
 
         List<ScannedFile> added = repository.findAllById(newlyAddedIds);
         Instant now = Instant.now();
-        int relocated = 0;
+        List<ScannedFileRelocated> relocated = new ArrayList<>();
 
         for (ScannedFile candidate : added) {
             List<ScannedFile> sameSize = missingBySize.get(candidate.getSizeBytes());
@@ -68,9 +65,6 @@ class RelocationDetector {
             }
 
             String candidateHash = candidate.getContentHash();
-            if (candidateHash == null) {
-                candidateHash = hashOf(libraryRoot, candidate);
-            }
             if (candidateHash == null) {
                 continue;
             }
@@ -96,22 +90,20 @@ class RelocationDetector {
             match.assignContentHash(candidateHash);
 
             sameSize.remove(match);
-            relocated++;
             log.info("识别到文件移动: {} -> {} (id={})", oldPath, newPath, survivingId);
-            events.publishEvent(new ScannedFileRelocated(survivingId, libraryId, oldPath, newPath));
+            relocated.add(new ScannedFileRelocated(survivingId, libraryId, oldPath, newPath));
         }
         return relocated;
     }
 
-    /** Computes the hash while the file is still present on disk. */
-    @Transactional
+    /** Computes the hash outside a database transaction, then persists it by id. */
     void ensureHash(Path libraryRoot, ScannedFile file) {
         if (file.getContentHash() != null) {
             return;
         }
         String hash = hashOf(libraryRoot, file);
         if (hash != null) {
-            file.assignContentHash(hash);
+            repository.updateContentHash(file.getId(), hash);
         }
     }
 

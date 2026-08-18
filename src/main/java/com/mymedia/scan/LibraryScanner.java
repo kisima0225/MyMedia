@@ -3,7 +3,9 @@ package com.mymedia.scan;
 import com.mymedia.library.LibraryService;
 import com.mymedia.library.MediaLibrary;
 import com.mymedia.scan.event.LibraryScanCompleted;
+import com.mymedia.scan.event.ScannedFileChanged;
 import com.mymedia.scan.event.ScannedFileDiscovered;
+import com.mymedia.scan.event.ScannedFileRelocated;
 import com.mymedia.scan.event.ScannedFileVanished;
 import com.mymedia.scan.spi.MediaTypeResolver;
 import org.slf4j.Logger;
@@ -11,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -53,7 +54,6 @@ class LibraryScanner {
         this.maxDepth = maxDepth;
     }
 
-    @Transactional
     ScanOutcome scan(Long libraryId) {
         MediaLibrary library = libraryService.getById(libraryId);
         Path root = Path.of(library.getRootPath());
@@ -94,10 +94,11 @@ class LibraryScanner {
             }
         }
 
-        int relocated = relocationDetector.detectAndApply(
-                libraryId, root, newlyAddedIds, newlyVanishedIds);
-        ScanOutcome finalOutcome = outcome.withRelocated(relocated);
-        publishFinalEvents(libraryId, entries, beforeActiveIds, newlyAddedIds);
+        List<ScannedFileRelocated> relocated = relocationDetector.detectAndApply(
+                libraryId, newlyAddedIds, newlyVanishedIds);
+        ScanOutcome finalOutcome = outcome.withRelocated(relocated.size());
+        publishFinalEvents(libraryId, entries, beforeActiveIds, newlyAddedIds,
+                finalOutcome, relocated);
 
         log.info("扫描完成 id={} 新增={} 更新={} 未变={} 消失={} 移动={}",
                 libraryId, finalOutcome.added(), finalOutcome.updated(),
@@ -111,7 +112,12 @@ class LibraryScanner {
     }
 
     private void publishFinalEvents(Long libraryId, List<ScannedEntry> entries,
-                                    Set<Long> beforeActiveIds, List<Long> newlyAddedIds) {
+                                    Set<Long> beforeActiveIds, List<Long> newlyAddedIds,
+                                    ScanOutcome outcome, List<ScannedFileRelocated> relocated) {
+        for (ScannedFileRelocated event : relocated) {
+            events.publishEvent(event);
+        }
+
         Map<String, ScannedEntry> entriesByPath = new HashMap<>();
         for (ScannedEntry entry : entries) {
             entriesByPath.put(entry.relativePath(), entry);
@@ -136,6 +142,20 @@ class LibraryScanner {
                 events.publishEvent(new ScannedFileVanished(
                         file.getId(), libraryId, file.getRelativePath()));
             }
+        }
+
+        Set<Long> changedIds = new HashSet<>(outcome.changedIds());
+        Set<Long> reactivatedIds = new HashSet<>(outcome.reactivatedIds());
+        changedIds.addAll(reactivatedIds);
+        for (ScannedFile file : finalFiles) {
+            if (!changedIds.contains(file.getId())
+                    || file.getStatus() != ScannedFileStatus.ACTIVE
+                    || !entriesByPath.containsKey(file.getRelativePath())) {
+                continue;
+            }
+            events.publishEvent(new ScannedFileChanged(
+                    file.getId(), libraryId, file.getRelativePath(),
+                    file.getSizeBytes(), file.getMtime(), reactivatedIds.contains(file.getId())));
         }
     }
 }

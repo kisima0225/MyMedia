@@ -58,6 +58,15 @@ class JobClaimService {
     }
 
     @Transactional
+    boolean renewLease(Long jobId, String owner, Duration leaseDuration) {
+        if (leaseDuration.isZero() || leaseDuration.isNegative()) {
+            return false;
+        }
+        Instant now = Instant.now();
+        return repository.renewLease(jobId, owner, now, now.plus(leaseDuration)) == 1;
+    }
+
+    @Transactional
     void recordSuccess(Long jobId, String owner) {
         Job job = loadOwnedRunning(jobId, owner);
         if (job != null) {

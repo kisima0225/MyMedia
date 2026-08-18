@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,8 @@ class ScanReconciler {
         int added = 0;
         int updated = 0;
         int unchanged = 0;
+        List<Long> changedIds = new ArrayList<>();
+        List<Long> reactivatedIds = new ArrayList<>();
 
         for (ScannedEntry entry : entries) {
             ScannedFile existing = existingByPath.remove(entry.relativePath());
@@ -38,11 +41,20 @@ class ScanReconciler {
                         entry.mtime(), entry.extension()));
                 added++;
             } else if (isContentChanged(existing, entry)) {
+                boolean reactivated = existing.getStatus() == ScannedFileStatus.MISSING;
                 existing.updateContent(entry.sizeBytes(), entry.mtime(), scanTime);
                 updated++;
+                changedIds.add(existing.getId());
+                if (reactivated) {
+                    reactivatedIds.add(existing.getId());
+                }
             } else {
+                boolean reactivated = existing.getStatus() == ScannedFileStatus.MISSING;
                 existing.touch(scanTime);
                 unchanged++;
+                if (reactivated) {
+                    reactivatedIds.add(existing.getId());
+                }
             }
         }
 
@@ -54,7 +66,8 @@ class ScanReconciler {
             }
         }
 
-        return new ScanOutcome(added, updated, unchanged, vanished, 0);
+        return new ScanOutcome(added, updated, unchanged, vanished, 0,
+                changedIds, reactivatedIds);
     }
 
     /** Size or modification time changes invalidate the stored content hash. */

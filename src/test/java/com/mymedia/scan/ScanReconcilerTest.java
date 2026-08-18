@@ -80,13 +80,20 @@ class ScanReconcilerTest extends AbstractIntegrationTest {
         MediaLibrary library = newLibrary();
         Instant mtime = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         reconciler.reconcile(library.getId(), List.of(entry("a.mkv", 100, mtime)));
+        Long originalId = queryService.findByPath(library.getId(), "a.mkv").orElseThrow().getId();
+        Instant changedMtime = mtime.plusSeconds(1);
 
         ScanOutcome second = reconciler.reconcile(library.getId(),
-                List.of(entry("a.mkv", 999, mtime)));
+                List.of(entry("a.mkv", 999, changedMtime)));
 
         assertThat(second.updated()).isEqualTo(1);
-        assertThat(queryService.findByPath(library.getId(), "a.mkv").orElseThrow()
-                .getSizeBytes()).isEqualTo(999L);
+        assertThat(second.changedIds()).containsExactly(originalId);
+        assertThat(second.reactivatedIds()).isEmpty();
+        assertThat(queryService.findByPath(library.getId(), "a.mkv").orElseThrow())
+                .satisfies(file -> {
+                    assertThat(file.getSizeBytes()).isEqualTo(999L);
+                    assertThat(file.getMtime()).isEqualTo(ScannedFile.toPostgresPrecision(changedMtime));
+                });
     }
 
     @Test
@@ -114,11 +121,13 @@ class ScanReconcilerTest extends AbstractIntegrationTest {
         Long originalId = queryService.findByPath(library.getId(), "a.mkv").orElseThrow().getId();
 
         reconciler.reconcile(library.getId(), List.of());
-        reconciler.reconcile(library.getId(), List.of(entry("a.mkv", 100, now)));
+        ScanOutcome recovery = reconciler.reconcile(library.getId(), List.of(entry("a.mkv", 100, now)));
 
         var file = queryService.findByPath(library.getId(), "a.mkv").orElseThrow();
         assertThat(file.getStatus()).isEqualTo(ScannedFileStatus.ACTIVE);
         assertThat(file.getId()).isEqualTo(originalId);
+        assertThat(recovery.changedIds()).isEmpty();
+        assertThat(recovery.reactivatedIds()).containsExactly(originalId);
     }
 
     @Test
