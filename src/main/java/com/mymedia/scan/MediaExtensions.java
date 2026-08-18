@@ -1,8 +1,11 @@
 package com.mymedia.scan;
 
 import com.mymedia.scan.spi.MediaKind;
+import com.mymedia.scan.spi.MediaTypeResolver;
 
 import java.util.Locale;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -26,14 +29,32 @@ final class MediaExtensions {
     }
 
     static MediaKind classify(String fileName) {
+        return classify(fileName, List.of());
+    }
+
+    static MediaKind classify(String fileName, List<MediaTypeResolver> resolvers) {
         String ext = extensionOf(fileName);
-        if (VIDEO.contains(ext)) {
+        MediaKind builtIn = classifyBuiltIn(ext);
+        if (builtIn != MediaKind.IGNORED) {
+            return builtIn;
+        }
+        for (MediaTypeResolver resolver : resolvers) {
+            Optional<MediaKind> resolved = resolver.resolve(ext);
+            if (resolved.isPresent()) {
+                return resolved.get();
+            }
+        }
+        return MediaKind.IGNORED;
+    }
+
+    private static MediaKind classifyBuiltIn(String extension) {
+        if (VIDEO.contains(extension)) {
             return MediaKind.VIDEO;
         }
-        if (IMAGE.contains(ext)) {
+        if (IMAGE.contains(extension)) {
             return MediaKind.IMAGE;
         }
-        if (ARCHIVE.contains(ext)) {
+        if (ARCHIVE.contains(extension)) {
             return MediaKind.ARCHIVE;
         }
         return MediaKind.IGNORED;

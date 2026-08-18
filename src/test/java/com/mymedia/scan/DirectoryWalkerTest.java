@@ -1,6 +1,7 @@
 package com.mymedia.scan;
 
 import com.mymedia.scan.spi.MediaKind;
+import com.mymedia.scan.spi.MediaTypeResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -8,8 +9,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class DirectoryWalkerTest {
@@ -76,6 +79,23 @@ class DirectoryWalkerTest {
         assertThat(entry.extension()).isEqualTo("mkv");
         assertThat(entry.mtime()).isNotNull();
         assertThat(entry.kind()).isEqualTo(MediaKind.VIDEO);
+    }
+
+    @Test
+    void discoversUnknownExtensionThroughResolverWithoutChangingBuiltIns() throws Exception {
+        touch("movie.mkv");
+        touch("track.flac");
+
+        MediaTypeResolver resolver = extension -> Optional.of(MediaKind.AUDIO);
+        DirectoryWalker resolverWalker = new DirectoryWalker(32, List.of(resolver));
+
+        List<ScannedEntry> entries = resolverWalker.walk(root);
+
+        assertThat(entries)
+                .extracting(ScannedEntry::relativePath, ScannedEntry::kind)
+                .containsExactlyInAnyOrder(
+                        tuple("movie.mkv", MediaKind.VIDEO),
+                        tuple("track.flac", MediaKind.AUDIO));
     }
 
     @Test

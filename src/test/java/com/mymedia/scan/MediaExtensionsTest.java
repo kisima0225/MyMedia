@@ -1,9 +1,13 @@
 package com.mymedia.scan;
 
 import com.mymedia.scan.spi.MediaKind;
+import com.mymedia.scan.spi.MediaTypeResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+
+import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -55,5 +59,19 @@ class MediaExtensionsTest {
     void classificationIsCaseInsensitive() {
         assertThat(MediaExtensions.classify("A.MkV")).isEqualTo(MediaKind.VIDEO);
         assertThat(MediaExtensions.classify("B.JpG")).isEqualTo(MediaKind.IMAGE);
+    }
+
+    @Test
+    void resolverClassifiesUnknownExtensionAfterBuiltIns() {
+        MediaTypeResolver resolver = extension -> extension.equals("flac")
+                ? Optional.of(MediaKind.AUDIO)
+                : Optional.empty();
+
+        assertThat(MediaExtensions.classify("track.flac", List.of(resolver)))
+                .isEqualTo(MediaKind.AUDIO);
+        assertThat(MediaExtensions.classify("movie.mkv", List.of(resolver)))
+                .isEqualTo(MediaKind.VIDEO);
+        assertThat(MediaExtensions.classify("movie.nfo", List.of(resolver)))
+                .isEqualTo(MediaKind.IGNORED);
     }
 }

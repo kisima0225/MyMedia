@@ -5,6 +5,7 @@ import com.mymedia.library.MediaLibrary;
 import com.mymedia.scan.event.LibraryScanCompleted;
 import com.mymedia.scan.event.ScannedFileDiscovered;
 import com.mymedia.scan.event.ScannedFileVanished;
+import com.mymedia.scan.spi.MediaTypeResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +34,7 @@ class LibraryScanner {
     private final RelocationDetector relocationDetector;
     private final ScannedFileRepository repository;
     private final ApplicationEventPublisher events;
+    private final List<MediaTypeResolver> mediaTypeResolvers;
     private final int maxDepth;
 
     LibraryScanner(LibraryService libraryService,
@@ -40,12 +42,14 @@ class LibraryScanner {
                    RelocationDetector relocationDetector,
                    ScannedFileRepository repository,
                    ApplicationEventPublisher events,
+                   List<MediaTypeResolver> mediaTypeResolvers,
                    @Value("${mymedia.scan.max-depth:32}") int maxDepth) {
         this.libraryService = libraryService;
         this.reconciler = reconciler;
         this.relocationDetector = relocationDetector;
         this.repository = repository;
         this.events = events;
+        this.mediaTypeResolvers = mediaTypeResolvers;
         this.maxDepth = maxDepth;
     }
 
@@ -57,7 +61,7 @@ class LibraryScanner {
 
         List<ScannedEntry> entries;
         try {
-            entries = new DirectoryWalker(maxDepth).walk(root);
+            entries = new DirectoryWalker(maxDepth, mediaTypeResolvers).walk(root);
         } catch (IOException e) {
             throw new UncheckedIOException("扫描媒体库失败: " + root, e);
         }

@@ -1,6 +1,7 @@
 package com.mymedia.scan;
 
 import com.mymedia.scan.spi.MediaKind;
+import com.mymedia.scan.spi.MediaTypeResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,9 +27,15 @@ class DirectoryWalker {
     private static final Logger log = LoggerFactory.getLogger(DirectoryWalker.class);
 
     private final int maxDepth;
+    private final List<MediaTypeResolver> resolvers;
 
     DirectoryWalker(int maxDepth) {
+        this(maxDepth, List.of());
+    }
+
+    DirectoryWalker(int maxDepth, List<MediaTypeResolver> resolvers) {
         this.maxDepth = maxDepth;
+        this.resolvers = List.copyOf(resolvers);
     }
 
     List<ScannedEntry> walk(Path root) throws IOException {
@@ -61,7 +68,7 @@ class DirectoryWalker {
                             return FileVisitResult.CONTINUE;
                         }
                         String fileName = file.getFileName().toString();
-                        MediaKind kind = MediaExtensions.classify(fileName);
+                        MediaKind kind = MediaExtensions.classify(fileName, resolvers);
                         if (kind == MediaKind.IGNORED) {
                             return FileVisitResult.CONTINUE;
                         }

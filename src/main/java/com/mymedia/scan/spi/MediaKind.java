@@ -9,6 +9,7 @@ package com.mymedia.scan.spi;
 public enum MediaKind {
     VIDEO,
     IMAGE,
+    AUDIO,
     /** 压缩包形态的图片集合，如 CBZ / ZIP。 */
     ARCHIVE,
     /** 非媒体文件：字幕、NFO、系统文件等。扫描时直接跳过。 */
