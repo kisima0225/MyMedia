@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 
 @Component
 @ConditionalOnProperty(prefix = "mymedia.jobs", name = "enabled", havingValue = "true", matchIfMissing = true)
-class JobScheduler {
+class JobScheduler implements JobPoller {
 
     private static final Logger log = LoggerFactory.getLogger(JobScheduler.class);
 
@@ -53,7 +53,8 @@ class JobScheduler {
     }
 
     /** 供测试直接触发一轮轮询，避免依赖定时器时序。 */
-    void pollOnce() {
+    @Override
+    public void pollOnce() {
         int reclaimed = claimService.reclaimExpiredLeases();
         if (reclaimed > 0) {
             log.warn("回收了 {} 个租约过期的任务", reclaimed);
