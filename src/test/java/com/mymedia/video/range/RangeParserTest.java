@@ -3,6 +3,7 @@ package com.mymedia.video.range;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RangeParserTest {
 
@@ -52,11 +53,35 @@ class RangeParserTest {
     }
 
     @Test
+    void startBeyondLongRangeIsUnsatisfiable() {
+        assertThat(RangeParser.resolve("bytes=9223372036854775808-", LENGTH))
+                .isEqualTo(new RangeResolution.Unsatisfiable(LENGTH));
+    }
+
+    @Test
+    void endBeyondLongRangeIsClamped() {
+        assertThat(RangeParser.resolve("bytes=0-9223372036854775808", LENGTH))
+                .isEqualTo(new RangeResolution.Partial(0, 999, LENGTH));
+    }
+
+    @Test
+    void suffixBeyondLongRangeCoversWholeFile() {
+        assertThat(RangeParser.resolve("bytes=-9223372036854775808", LENGTH))
+                .isEqualTo(new RangeResolution.Partial(0, 999, LENGTH));
+    }
+
+    @Test
     void startAtOrBeyondLengthIsUnsatisfiable() {
         assertThat(RangeParser.resolve("bytes=1000-", LENGTH))
                 .isEqualTo(new RangeResolution.Unsatisfiable(LENGTH));
         assertThat(RangeParser.resolve("bytes=5000-6000", LENGTH))
                 .isEqualTo(new RangeResolution.Unsatisfiable(LENGTH));
+    }
+
+    @Test
+    void malformedEndIsFullEvenWhenStartIsOutOfRange() {
+        assertThat(RangeParser.resolve("bytes=1000-abc", LENGTH))
+                .isEqualTo(new RangeResolution.Full(LENGTH));
     }
 
     @Test
@@ -91,6 +116,36 @@ class RangeParserTest {
     }
 
     @Test
+    void signedRangeNumbersAreMalformed() {
+        assertThat(RangeParser.resolve("bytes=+0-1", LENGTH))
+                .isEqualTo(new RangeResolution.Full(LENGTH));
+        assertThat(RangeParser.resolve("bytes=0-+1", LENGTH))
+                .isEqualTo(new RangeResolution.Full(LENGTH));
+    }
+
+    @Test
+    void multipleDashRangeIsMalformed() {
+        assertThat(RangeParser.resolve("bytes=0--1", LENGTH))
+                .isEqualTo(new RangeResolution.Full(LENGTH));
+    }
+
+    @Test
+    void whitespaceInsideUnitIsNotIgnored() {
+        assertThat(RangeParser.resolve("b y t e s=0-1", LENGTH))
+                .isEqualTo(new RangeResolution.Full(LENGTH));
+    }
+
+    @Test
+    void emptyRangePartsAreMalformed() {
+        assertThat(RangeParser.resolve("bytes=0-99,", LENGTH))
+                .isEqualTo(new RangeResolution.Full(LENGTH));
+        assertThat(RangeParser.resolve("bytes=,0-99", LENGTH))
+                .isEqualTo(new RangeResolution.Full(LENGTH));
+        assertThat(RangeParser.resolve("bytes=0-99,,200-299", LENGTH))
+                .isEqualTo(new RangeResolution.Full(LENGTH));
+    }
+
+    @Test
     void zeroLengthFileIsAlwaysUnsatisfiableForAnyRange() {
         assertThat(RangeParser.resolve("bytes=0-", 0))
                 .isEqualTo(new RangeResolution.Unsatisfiable(0));
@@ -115,5 +170,11 @@ class RangeParserTest {
 
         // Range 的两端都是闭区间，长度是 end - start + 1
         assertThat(partial.contentLength()).isEqualTo(500L);
+    }
+
+    @Test
+    void negativeFileLengthIsRejected() {
+        assertThatThrownBy(() -> RangeParser.resolve(null, -1L))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

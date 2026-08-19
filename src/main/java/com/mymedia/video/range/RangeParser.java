@@ -1,5 +1,7 @@
 package com.mymedia.video.range;
 
+import java.math.BigInteger;
+
 /**
  * HTTP Range 头解析，遵循 RFC 9110 §14.1。
  *
@@ -17,18 +19,23 @@ package com.mymedia.video.range;
 public final class RangeParser {
 
     private static final String UNIT_PREFIX = "bytes";
+    private static final BigInteger ZERO = BigInteger.ZERO;
+    private static final BigInteger ONE = BigInteger.ONE;
 
     private RangeParser() {
     }
 
     public static RangeResolution resolve(String rangeHeader, long fileLength) {
+        if (fileLength < 0) {
+            throw new IllegalArgumentException("fileLength must not be negative");
+        }
         if (rangeHeader == null || rangeHeader.isBlank()) {
             return new RangeResolution.Full(fileLength);
         }
 
-        String header = rangeHeader.replace(" ", "");
+        String header = normalizeDelimiterWhitespace(rangeHeader);
         int equals = header.indexOf('=');
-        if (equals < 0) {
+        if (equals < 0 || equals != header.lastIndexOf('=')) {
             return new RangeResolution.Full(fileLength);
         }
 
@@ -48,7 +55,7 @@ public final class RangeParser {
         boolean anyValid = false;
         boolean anyUnsatisfiable = false;
 
-        for (String part : spec.split(",")) {
+        for (String part : spec.split(",", -1)) {
             long[] resolved = resolveSingle(part, fileLength);
             if (resolved == null) {
                 // 语法错误：整个 Range 头作废，返回完整内容
@@ -77,7 +84,7 @@ public final class RangeParser {
      */
     private static long[] resolveSingle(String part, long fileLength) {
         int dash = part.indexOf('-');
-        if (dash < 0) {
+        if (dash < 0 || dash != part.lastIndexOf('-')) {
             return null;
         }
         String startText = part.substring(0, dash);
@@ -86,31 +93,76 @@ public final class RangeParser {
         if (startText.isEmpty() && endText.isEmpty()) {
             return null;
         }
-
-        try {
-            if (startText.isEmpty()) {
-                // 后缀形式 bytes=-N：最后 N 个字节
-                long suffixLength = Long.parseLong(endText);
-                if (suffixLength <= 0 || fileLength == 0) {
-                    return new long[0];
-                }
-                long start = Math.max(0, fileLength - suffixLength);
-                return new long[]{start, fileLength - 1};
-            }
-
-            long start = Long.parseLong(startText);
-            if (start < 0 || start >= fileLength) {
-                return new long[0];
-            }
-
-            long end = endText.isEmpty() ? fileLength - 1 : Long.parseLong(endText);
-            if (end < start) {
-                return new long[0];
-            }
-            return new long[]{start, Math.min(end, fileLength - 1)};
-
-        } catch (NumberFormatException e) {
+        if ((!startText.isEmpty() && !isDigits(startText))
+                || (!endText.isEmpty() && !isDigits(endText))) {
             return null;
         }
+
+        BigInteger fileLengthValue = BigInteger.valueOf(fileLength);
+        if (startText.isEmpty()) {
+            // 后缀形式 bytes=-N：最后 N 个字节
+            BigInteger suffixLength = new BigInteger(endText);
+            if (suffixLength.signum() <= 0 || fileLength == 0) {
+                return new long[0];
+            }
+            BigInteger start = fileLengthValue.subtract(suffixLength).max(ZERO);
+            return new long[]{start.longValueExact(), fileLength - 1};
+        }
+
+        BigInteger start = new BigInteger(startText);
+        BigInteger end = endText.isEmpty()
+                ? fileLengthValue.subtract(ONE)
+                : new BigInteger(endText);
+        // 语法已经验证后才判定边界，避免 bytes=1000-abc 被误判为 416。
+        if (start.compareTo(fileLengthValue) >= 0 || end.compareTo(start) < 0) {
+            return new long[0];
+        }
+
+        BigInteger lastByte = fileLengthValue.subtract(ONE);
+        if (end.compareTo(lastByte) > 0) {
+            end = lastByte;
+        }
+        return new long[]{start.longValueExact(), end.longValueExact()};
+    }
+
+    private static boolean isDigits(String text) {
+        for (int index = 0; index < text.length(); index++) {
+            char character = text.charAt(index);
+            if (character < '0' || character > '9') {
+                return false;
+            }
+        }
+        return !text.isEmpty();
+    }
+
+    private static String normalizeDelimiterWhitespace(String header) {
+        StringBuilder normalized = new StringBuilder(header.length());
+        for (int index = 0; index < header.length(); index++) {
+            char character = header.charAt(index);
+            if (!Character.isWhitespace(character)) {
+                normalized.append(character);
+                continue;
+            }
+
+            int previous = index - 1;
+            while (previous >= 0 && Character.isWhitespace(header.charAt(previous))) {
+                previous--;
+            }
+            int next = index + 1;
+            while (next < header.length() && Character.isWhitespace(header.charAt(next))) {
+                next++;
+            }
+            if (previous < 0 || next == header.length()
+                    || isDelimiter(header.charAt(previous))
+                    || isDelimiter(header.charAt(next))) {
+                continue;
+            }
+            normalized.append(character);
+        }
+        return normalized.toString();
+    }
+
+    private static boolean isDelimiter(char character) {
+        return character == '=' || character == '-' || character == ',';
     }
 }
