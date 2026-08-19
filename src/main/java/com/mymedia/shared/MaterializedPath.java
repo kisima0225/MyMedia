@@ -78,5 +78,18 @@ public final class MaterializedPath {
         if (path == null || !path.startsWith(SEPARATOR) || !path.endsWith(SEPARATOR)) {
             throw new IllegalArgumentException("物化路径必须以斜杠开头并以斜杠结尾: " + path);
         }
+        if (SEPARATOR.equals(path)) {
+            return;
+        }
+        for (String segment : path.substring(1, path.length() - 1).split(SEPARATOR, -1)) {
+            if (segment.isEmpty()) {
+                throw new IllegalArgumentException("物化路径不能包含空路径段: " + path);
+            }
+            try {
+                Long.parseLong(segment);
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("物化路径节点 id 必须是数字: " + path, exception);
+            }
+        }
     }
 }

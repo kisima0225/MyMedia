@@ -64,6 +64,48 @@ class MaterializedPathTest {
     }
 
     @Test
+    void rejectsEmptySegmentsAcrossPathOperations() {
+        assertThatThrownBy(() -> MaterializedPath.childOf("/1//", 17L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.ancestorIds("/1//17/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.depthOf("/1//17/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.subtreePrefix("/1//17/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.rewrite("/1//17/", "/1/", "/5/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.rewrite("/1/17/", "/1//", "/5/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.rewrite("/1/17/", "/1/", "/5//"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsNonNumericSegmentsAcrossPathOperations() {
+        assertThatThrownBy(() -> MaterializedPath.childOf("/1/x/", 17L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.ancestorIds("/1/x/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.depthOf("/1/x/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.subtreePrefix("/1/x/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.rewrite("/1/x/", "/1/", "/5/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.rewrite("/1/17/", "/1/x/", "/5/"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MaterializedPath.rewrite("/1/17/", "/1/", "/5/x/"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void keepsRootPathValidForPathOperations() {
+        assertThat(MaterializedPath.subtreePrefix("/")).isEqualTo("/");
+        assertThat(MaterializedPath.rewrite("/", "/", "/5/")).isEqualTo("/5/");
+    }
+
+    @Test
     void handlesDeepPaths() {
         String path = MaterializedPath.rootPath();
         for (long i = 1; i <= 32; i++) {
