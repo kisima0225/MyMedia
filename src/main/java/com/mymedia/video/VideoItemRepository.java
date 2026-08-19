@@ -15,5 +15,7 @@ interface VideoItemRepository extends JpaRepository<VideoItem, Long> {
 
     List<VideoItem> findByFolderId(Long folderId);
 
+    List<VideoItem> findByLibraryIdAndFolderIdOrderBySortTitle(Long libraryId, Long folderId);
+
     long countByFolderId(Long folderId);
 }

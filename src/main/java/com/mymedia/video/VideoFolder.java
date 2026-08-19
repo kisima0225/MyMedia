@@ -87,4 +87,12 @@ public class VideoFolder {
         this.directItemCount = direct;
         this.totalItemCount = total;
     }
+
+    void incrementDirectItemCount() {
+        directItemCount++;
+    }
+
+    void incrementTotalItemCount() {
+        totalItemCount++;
+    }
 }

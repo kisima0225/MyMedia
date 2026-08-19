@@ -11,7 +11,11 @@ interface VideoFolderRepository extends JpaRepository<VideoFolder, Long> {
 
     Optional<VideoFolder> findByLibraryIdAndParentIdIsNullAndName(Long libraryId, String name);
 
-    List<VideoFolder> findByParentIdOrderBySortKey(Long parentId);
+    List<VideoFolder> findByLibraryIdAndParentIdOrderBySortKey(Long libraryId, Long parentId);
 
     List<VideoFolder> findByLibraryIdAndParentIdIsNullOrderBySortKey(Long libraryId);
+
+    Optional<VideoFolder> findByLibraryIdAndId(Long libraryId, Long id);
+
+    List<VideoFolder> findAllByLibraryIdAndIdIn(Long libraryId, List<Long> ids);
 }
