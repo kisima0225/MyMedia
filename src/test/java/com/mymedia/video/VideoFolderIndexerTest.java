@@ -2,6 +2,8 @@ package com.mymedia.video;
 
 import com.mymedia.AbstractIntegrationTest;
 import com.mymedia.jobs.JobPoller;
+import com.mymedia.jobs.JobQueue;
+import com.mymedia.jobs.JobStatus;
 import com.mymedia.library.LibraryDomain;
 import com.mymedia.library.LibraryService;
 import com.mymedia.library.MediaLibrary;
@@ -9,15 +11,22 @@ import com.mymedia.scan.ScanTrigger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class VideoFolderIndexerTest extends AbstractIntegrationTest {
 
     @TempDir
@@ -28,6 +37,9 @@ class VideoFolderIndexerTest extends AbstractIntegrationTest {
 
     @Autowired
     JobPoller jobPoller;
+
+    @Autowired
+    JobQueue jobQueue;
 
     @Autowired
     LibraryService libraryService;
@@ -46,8 +58,10 @@ class VideoFolderIndexerTest extends AbstractIntegrationTest {
     }
 
     private void scan(Long libraryId) {
-        scanTrigger.requestScan(libraryId);
+        Long jobId = scanTrigger.requestScan(libraryId);
         jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(jobQueue.findById(jobId).getStatus()).isEqualTo(JobStatus.SUCCEEDED));
     }
 
     @Test

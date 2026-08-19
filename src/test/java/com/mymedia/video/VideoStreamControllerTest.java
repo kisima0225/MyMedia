@@ -2,6 +2,8 @@ package com.mymedia.video;
 
 import com.mymedia.AbstractIntegrationTest;
 import com.mymedia.jobs.JobPoller;
+import com.mymedia.jobs.JobQueue;
+import com.mymedia.jobs.JobStatus;
 import com.mymedia.library.LibraryAccessService;
 import com.mymedia.library.LibraryDomain;
 import com.mymedia.library.LibraryService;
@@ -15,21 +17,32 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @AutoConfigureMockMvc
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class VideoStreamControllerTest extends AbstractIntegrationTest {
 
     private static final String CONTENT = "0123456789ABCDEFGHIJ";
@@ -45,6 +58,9 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
 
     @Autowired
     JobPoller jobPoller;
+
+    @Autowired
+    JobQueue jobQueue;
 
     @Autowired
     LibraryService libraryService;
@@ -68,8 +84,10 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
 
         MediaLibrary library = libraryService.create(
                 "库" + UUID.randomUUID(), LibraryDomain.VIDEO, root.toString());
-        scanTrigger.requestScan(library.getId());
+        Long jobId = scanTrigger.requestScan(library.getId());
         jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(jobQueue.findById(jobId).getStatus()).isEqualTo(JobStatus.SUCCEEDED));
 
         username = "u" + UUID.randomUUID().toString().substring(0, 8);
         UserAccount user = registrationService.register(username, "pw", UserRole.USER);
@@ -83,8 +101,7 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
     void fullRequestReturns200WithAcceptRanges() throws Exception {
         setUpLibraryWithFile();
 
-        MvcResult result = mockMvc.perform(get("/api/video/stream/" + fileId)
-                        .with(httpBasic(username, "pw")))
+        MvcResult result = streamRequest(null)
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
                 .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, CONTENT.length()))
@@ -97,9 +114,7 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
     void rangeRequestReturns206WithContentRange() throws Exception {
         setUpLibraryWithFile();
 
-        MvcResult result = mockMvc.perform(get("/api/video/stream/" + fileId)
-                        .with(httpBasic(username, "pw"))
-                        .header(HttpHeaders.RANGE, "bytes=0-4"))
+        MvcResult result = streamRequest("bytes=0-4")
                 .andExpect(status().isPartialContent())
                 .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 0-4/20"))
                 .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 5))
@@ -112,9 +127,7 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
     void openEndedRangeReadsToEnd() throws Exception {
         setUpLibraryWithFile();
 
-        MvcResult result = mockMvc.perform(get("/api/video/stream/" + fileId)
-                        .with(httpBasic(username, "pw"))
-                        .header(HttpHeaders.RANGE, "bytes=15-"))
+        MvcResult result = streamRequest("bytes=15-")
                 .andExpect(status().isPartialContent())
                 .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 15-19/20"))
                 .andReturn();
@@ -126,9 +139,7 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
     void suffixRangeReadsLastBytes() throws Exception {
         setUpLibraryWithFile();
 
-        MvcResult result = mockMvc.perform(get("/api/video/stream/" + fileId)
-                        .with(httpBasic(username, "pw"))
-                        .header(HttpHeaders.RANGE, "bytes=-3"))
+        MvcResult result = streamRequest("bytes=-3")
                 .andExpect(status().isPartialContent())
                 .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 17-19/20"))
                 .andReturn();
@@ -151,9 +162,7 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
     void malformedRangeFallsBackToFullContent() throws Exception {
         setUpLibraryWithFile();
 
-        mockMvc.perform(get("/api/video/stream/" + fileId)
-                        .with(httpBasic(username, "pw"))
-                        .header(HttpHeaders.RANGE, "bytes=abc-def"))
+        streamRequest("bytes=abc-def")
                 .andExpect(status().isOk())
                 .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, CONTENT.length()));
     }
@@ -162,7 +171,7 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
     void responseCarriesEtag() throws Exception {
         setUpLibraryWithFile();
 
-        mockMvc.perform(get("/api/video/stream/" + fileId).with(httpBasic(username, "pw")))
+        streamRequest(null)
                 .andExpect(header().exists(HttpHeaders.ETAG));
     }
 
@@ -170,10 +179,7 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
     void ifRangeMismatchReturnsFullContent() throws Exception {
         setUpLibraryWithFile();
 
-        mockMvc.perform(get("/api/video/stream/" + fileId)
-                        .with(httpBasic(username, "pw"))
-                        .header(HttpHeaders.RANGE, "bytes=0-4")
-                        .header(HttpHeaders.IF_RANGE, "\"stale-etag\""))
+        streamRequest("bytes=0-4", "\"stale-etag\"")
                 .andExpect(status().isOk())
                 .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, CONTENT.length()));
     }
@@ -194,5 +200,25 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
 
         mockMvc.perform(get("/api/video/stream/" + fileId))
                 .andExpect(status().isUnauthorized());
+    }
+
+    private ResultActions streamRequest(String range) throws Exception {
+        return streamRequest(range, null);
+    }
+
+    private ResultActions streamRequest(String range, String ifRange) throws Exception {
+        MockHttpServletRequestBuilder request = get("/api/video/stream/" + fileId)
+                .with(httpBasic(username, "pw"));
+        if (range != null) {
+            request.header(HttpHeaders.RANGE, range);
+        }
+        if (ifRange != null) {
+            request.header(HttpHeaders.IF_RANGE, ifRange);
+        }
+
+        MvcResult initial = mockMvc.perform(request)
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        return mockMvc.perform(asyncDispatch(initial));
     }
 }
