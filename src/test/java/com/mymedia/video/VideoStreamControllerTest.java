@@ -219,6 +219,7 @@ class VideoStreamControllerTest extends AbstractIntegrationTest {
         MvcResult initial = mockMvc.perform(request)
                 .andExpect(request().asyncStarted())
                 .andReturn();
+        initial.getAsyncResult(Duration.ofSeconds(5).toMillis());
         return mockMvc.perform(asyncDispatch(initial));
     }
 }
