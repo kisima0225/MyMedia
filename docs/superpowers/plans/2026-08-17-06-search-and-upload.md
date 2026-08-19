@@ -8894,7 +8894,6 @@ Expected: `EXIT=0`，`UploadEndToEndTest` 5 个用例通过。
 - Create: `docs/adr/ADR-007-采样哈希与秒传的边界.md`
 - Create: `docs/walkthrough/06-检索与上传.md`
 - Modify: `docs/superpowers/plans/2026-08-17-00-总览与交接.md`（把 06 标记为已完成）
-- Modify: `docs/superpowers/plans/STATUS.md`（同上）
 
 **Interfaces:**
 - Consumes: 前 12 个任务的全部产出
@@ -9221,15 +9220,11 @@ async function sampledHash(file) {
 5. §5「已知遗留」追加计划 06 的遗留项（见本计划 Self-Review 第 5 节）。
 6. 新增一节记录本计划落地的两个 ADR（006/007），与计划 05 的 004/005 并列。
 
-修改 `docs/superpowers/plans/STATUS.md`：
-
-1. §1「一句话现状」改成：计划 01 的代码已执行完毕并合入 `main`；
-   计划 02–06 的计划文本已写完；**下一步要么执行计划 02，要么开始写计划 07**。
-2. §3.3 的表格补齐 Task 6–13。
-3. §4「未决问题」删掉第 1、2 条（计划 06 已写完、草稿已并入），
-   第 3 条（`VideoItem.getCoverAssetId()`）改成「已在 Task 6 Step 5 明确补上，
-   且是只读映射」。
-4. §5「下一步操作」把 5.1 换成「计划 07（前端）待写」。
+> **不要再去改 `STATUS.md`——它已于 2026-08-19 并入总览并删除。**
+> 当时并存两份「跨会话第一入口」，结果其中一份必然过期。
+> 现在只有总览一份，本任务的所有状态更新都落在它上面：
+> 除了上面五条，还要把 §5 表里属于计划 06 的行（G5–G10）从 ⬜ 改成 ✅，
+> 并在 §8 之后补一节「计划 06 执行交接」。
 
 - [ ] **Step 7: 最终提交**
 

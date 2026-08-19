@@ -1,5 +1,23 @@
 # 扫描与任务租约 Important 修复实施计划
 
+> ## ✅ 已执行并合入 `main`
+>
+> 提交 `a8bc946 fix: 修复扫描与任务租约重要问题`，17 个文件、+578/−38。
+> 四个任务的产物已于 2026-08-19 逐项核对存在：
+> `JobClaimService.renewLease` / `JobRepository.renewLease` / `JobScheduler` 心跳（Task 1）、
+> `ScanOutcome.changedIds+reactivatedIds` / `ScannedFileChanged` / `LibraryContentBuilder.onFileChanged`（Task 2）、
+> `scan/event/package-info.java` 的 `@NamedInterface("events")` 与 `docs/walkthrough/02-扫描框架.md`（Task 3）。
+> 测试侧 `JobClaimServiceTest`（owner fencing）、`JobSchedulerTest.renewsLeaseWhileSlowHandlerRuns`、
+> `ScanReconcilerTest` 与 `LibraryScanIntegrationTest` 的 reactivated 断言均在仓库里。
+>
+> **它改了跨计划的契约，读后续计划前先读这里**：
+> `LibraryContentBuilder` 从两个回调变成三个（多了 `onFileChanged`），
+> 跨模块事件契约成为 `scan :: events` 命名接口。计划 04 已按此对齐（见其 Self-Review），
+> 计划 05 的 Task 6 Step 1/2 也已改写。
+>
+> 唯一无法事后核验的是 Task 4 Step 4 的 `final-fix-report.md`——它按计划写在当时的
+> worktree `D:\MyMedia-2` 里且明确不纳入提交，那个 worktree 已经不在了。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 修复最终 whole-branch review 指出的扫描长事务、任务租约不续期、扫描事件缺少 named interface，以及领域层无法感知内容变化/重新激活四项 Important 问题。
@@ -34,21 +52,21 @@
 - Produces `JobClaimService.renewLease(Long jobId, String owner, Duration leaseDuration)`，返回是否更新到仍由该 owner 持有的 RUNNING 且未过期任务。
 - Produces a package-private repository modifying query that returns update row count and checks id、RUNNING、owner、未过期租约。
 
-- [ ] **Step 1: 写 owner fencing 的失败集成测试**
+- [x] **Step 1: 写 owner fencing 的失败集成测试**
 
 在 `JobClaimServiceTest` 增加一条测试：worker A 以负租约抢占，回收并由 worker B 重新抢占，然后断言 A 的 `renewLease` 返回 `false`，任务仍由 B 持有；再增加一条正向测试，续期成功且新的 `leaseExpiresAt` 晚于旧值。
 
-- [ ] **Step 2: 运行 jobs focused 测试确认 RED**
+- [x] **Step 2: 运行 jobs focused 测试确认 RED**
 
 Run: `mvn -B -ntp test "-Dtest=JobClaimServiceTest" -DfailIfNoTests=false`
 
 Expected: 编译失败或找不到 `renewLease`，而不是测试代码错误。
 
-- [ ] **Step 3: 写慢 handler 续期的失败集成测试**
+- [x] **Step 3: 写慢 handler 续期的失败集成测试**
 
 在 `JobSchedulerTest` 的测试属性中设置 `mymedia.jobs.lease-duration=PT0.3S`，增加测试：启动现有 blocking handler 后读取初始租约，等待 handler 仍为 RUNNING 且租约被延长，再释放 handler 并断言最终成功。保留现有 `slowHandlerDoesNotBlockOtherJobsOrTheNextPoll` 语义。
 
-- [ ] **Step 4: 实现 repository 和 claim service 续期**
+- [x] **Step 4: 实现 repository 和 claim service 续期**
 
 增加如下语义的 native modifying query：
 
@@ -63,11 +81,11 @@ WHERE id = :id
 
 `JobClaimService.renewLease` 在一个事务中计算 `now` 与新过期时间，返回更新行数是否为 1，不加载或伪造跨事务实体状态。
 
-- [ ] **Step 5: 实现 scheduler heartbeat 生命周期**
+- [x] **Step 5: 实现 scheduler heartbeat 生命周期**
 
 新增单独的 `ScheduledExecutorService`。每个有 handler 的 RUNNING job 以约 `leaseDuration / 3` 的固定周期调用 `renewLease`；周期对零、负和纳秒级 duration 至少归一为可调度的正数。续租返回 false 或抛异常均记录 job、owner 和原因。handler 完成或失败在 `finally` 取消对应 `ScheduledFuture`；shutdown 等待现有任务后关闭 heartbeat executor，并保留现有异步 `pollOnce` 行为。
 
-- [ ] **Step 6: 运行 jobs focused 测试确认 GREEN**
+- [x] **Step 6: 运行 jobs focused 测试确认 GREEN**
 
 Run: `mvn -B -ntp test "-Dtest=JobClaimServiceTest,JobSchedulerTest" -DfailIfNoTests=false`
 
@@ -91,17 +109,17 @@ Expected: 所有 jobs 测试通过，慢 handler 测试仍证明 poll 不阻塞�
 - Adds `LibraryContentBuilder.onFileChanged(ScannedFileChanged event)`。
 - `ScanOutcome` records content-changed ids and reactivated ids without returning managed JPA entities across transaction boundaries。
 
-- [ ] **Step 1: 写 reconciler 的变化/恢复失败测试**
+- [x] **Step 1: 写 reconciler 的变化/恢复失败测试**
 
 在 `ScanReconcilerTest` 增加断言：size 或 mtime 变化时 `changedIds` 包含稳定 id、持久化 size/mtime 更新；ACTIVE -> MISSING -> 同路径 ACTIVE 时 `reactivatedIds` 包含原 id 且 id 不变，未新增记录。
 
-- [ ] **Step 2: 运行 scan reconciler focused 测试确认 RED**
+- [x] **Step 2: 运行 scan reconciler focused 测试确认 RED**
 
 Run: `mvn -B -ntp test "-Dtest=ScanReconcilerTest" -DfailIfNoTests=false`
 
 Expected: 因 `ScanOutcome` 尚无变化 id API 或断言不满足而失败。
 
-- [ ] **Step 3: 写真实扫描事件的失败集成测试**
+- [x] **Step 3: 写真实扫描事件的失败集成测试**
 
 在 `LibraryScanIntegrationTest` 扩展事件 recorder，并增加三类断言：
 
@@ -118,25 +136,25 @@ assertThat(recorder.changed()).singleElement()
 
 测试同路径恢复必须只得到 changed/reactivated，不得到 discovered 或 relocated；移动测试必须保持 `relocated -> completed` 且没有重复 changed/discovered/vanished。事件 recorder 记录类型顺序，避免只验证最终集合。
 
-- [ ] **Step 4: 运行集成测试确认 RED**
+- [x] **Step 4: 运行集成测试确认 RED**
 
 Run: `mvn -B -ntp test "-Dtest=LibraryScanIntegrationTest" -DfailIfNoTests=false`
 
 Expected: 因事件类型、回调或 scanner 发布逻辑不存在而编译失败。
 
-- [ ] **Step 5: 拆除 scanner 外层事务并修复跨事务状态**
+- [x] **Step 5: 拆除 scanner 外层事务并修复跨事务状态**
 
 删除 `LibraryScanner.scan` 的 `@Transactional`。保留 `ScanReconciler.reconcile` 和 relocation 数据库应用的短事务；哈希读取不在事务中进行，使用按 id 的 modifying update 持久化哈希。scanner 只跨事务传递 id、路径和不可变 outcome 数据；事件在 relocation 事务返回后、completion 之前发布。
 
-- [ ] **Step 6: 让 reconciler 记录 changed/reactivated ids**
+- [x] **Step 6: 让 reconciler 记录 changed/reactivated ids**
 
 对已有记录先捕获旧状态：内容 size/mtime 变化加入 changed ids；旧状态为 MISSING 且本轮命中路径加入 reactivated ids；MISSING 恢复即使内容未变也必须记录。新发现只走 discovered，不额外发布 changed。
 
-- [ ] **Step 7: 添加 changed event、SPI 回调和最终事件发布**
+- [x] **Step 7: 添加 changed event、SPI 回调和最终事件发布**
 
 新增 public event record 携带最终 ACTIVE 记录的 id、library、path、size、mtime 和 `reactivated`；`LibraryContentBuilder` 增加对应回调。relocation detector 返回配对结果而不是在数据库事务内发布事件；scanner 按最终数据库状态发布 relocation、discovered、vanished、changed，最后发布 completed，并以 id 去重 changed/reactivated。
 
-- [ ] **Step 8: 运行 scan focused 测试确认 GREEN**
+- [x] **Step 8: 运行 scan focused 测试确认 GREEN**
 
 Run: `mvn -B -ntp test "-Dtest=ScanReconcilerTest,RelocationDetectorTest,LibraryScanIntegrationTest" -DfailIfNoTests=false`
 
@@ -153,19 +171,19 @@ Expected: 现有新增、消失、移动顺序和新 size/mtime、同路径恢�
 - Produces `scan :: events` named interface，覆盖 `scan.event` 中所有 public event records。
 - 保留 `scan :: spi`，不改变 `com.mymedia.scan` 的 allowed dependencies。
 
-- [ ] **Step 1: 写 named interface 契约测试或先运行现有 Modulith 测试**
+- [x] **Step 1: 写 named interface 契约测试或先运行现有 Modulith 测试**
 
 先运行 `ModularityTests` 记录当前行为；若测试 API 能稳定检查 named interface，则增加对 `events` 的最小断言，否则以架构测试加载新增 package-info 为 RED/GREEN 证据。
 
-- [ ] **Step 2: 增加 `@NamedInterface("events")`**
+- [x] **Step 2: 增加 `@NamedInterface("events")`**
 
 创建 `scan/event/package-info.java`，只声明 `org.springframework.modulith.NamedInterface("events")`，不引入任何具体领域依赖。
 
-- [ ] **Step 3: 更新 walkthrough 契约说明**
+- [x] **Step 3: 更新 walkthrough 契约说明**
 
 说明未来 video/image 必须显式依赖 `scan :: spi` 与 `scan :: events`；事件 records 属于 events named interface，SPI 属于 spi named interface，scan 仍不依赖具体领域模块。
 
-- [ ] **Step 4: 运行 Modulith 测试确认 GREEN**
+- [x] **Step 4: 运行 Modulith 测试确认 GREEN**
 
 Run: `mvn -B -ntp test "-Dtest=ModularityTests" -DfailIfNoTests=false`
 
@@ -176,23 +194,23 @@ Expected: 2 tests pass and module dependency output仍只包含既有 allowed de
 **Files:**
 - Create: `D:\MyMedia-2\.superpowers\sdd\2026-08-17-02-scanning\final-fix-report.md`（不纳入 commit）
 
-- [ ] **Step 1: 运行 focused jobs/scan/Modulith 测试**
+- [x] **Step 1: 运行 focused jobs/scan/Modulith 测试**
 
 Run: `mvn -B -ntp test "-Dtest=JobClaimServiceTest,JobSchedulerTest,ScanReconcilerTest,RelocationDetectorTest,LibraryScanIntegrationTest,ModularityTests" -DfailIfNoTests=false`
 
-- [ ] **Step 2: 运行全量 verify**
+- [x] **Step 2: 运行全量 verify**
 
 Run: `mvn -B -ntp verify`
 
-- [ ] **Step 3: 自审 worktree diff**
+- [x] **Step 3: 自审 worktree diff**
 
 检查 `git diff --check`、事务注解、事件顺序、owner fencing、未修改主 worktree，确认没有 migration、日志、临时媒体或 ledger 被纳入提交。
 
-- [ ] **Step 4: 写完整 final-fix-report.md**
+- [x] **Step 4: 写完整 final-fix-report.md**
 
 逐项记录修复文件位置、RED/GREEN/focused/verify 命令和关键输出，明确列出未处理的 Minor：DirectoryWalker 不可读子树完整性标记、saveAndFlush 批处理、采样哈希长度测试强度、Windows symlink skip、malformed payload/404/额外事件顺序覆盖。
 
-- [ ] **Step 5: 提交单个中文 commit**
+- [x] **Step 5: 提交单个中文 commit**
 
 ```text
 git add src docs

@@ -98,7 +98,9 @@ src/main/java/com/mymedia/image/
 ├── ImageProgressService.java         public API：阅读进度
 ├── ImageProgress.java                实体 → 表 image_progress
 ├── ImageProgressRepository.java      package-private
-├── event/ImageNodeCreated.java       public 事件
+├── event/
+│   ├── package-info.java             @NamedInterface("events")
+│   └── ImageNodeCreated.java         public 事件
 └── web/
     ├── ImageNodeDto.java
     ├── ImageNodeController.java
@@ -474,9 +476,33 @@ CREATE INDEX idx_image_file_node_sort ON image_file (node_id, sort_key);
 `src/main/java/com/mymedia/image/package-info.java`：
 
 ```java
-@org.springframework.modulith.ApplicationModule(displayName = "Image")
+/**
+ * 图片域：任意深度节点树、CBZ 流式读取、分页阅读、阅读进度。
+ *
+ * <p><b>依赖方向</b>：本模块<b>绝不</b>引用 {@code video}，也绝不引用后续的
+ * {@code preview} / {@code metadata}——预览与刮削是订阅本模块事件、再调用本模块
+ * 公开写回 API 的下游，依赖是单向的。与视频域共享的只有 {@code shared} 里的算法
+ * （{@code NaturalSortKey}、{@code MaterializedPath}），<b>复用算法，不复用模型</b>。
+ *
+ * <p>下面这份 {@code allowedDependencies} 就是这条约束的强制点，由
+ * {@code ModularityTests} 在测试阶段检查。{@code scan} 的跨模块契约分成两个命名接口
+ * （{@code scan::spi} 与 {@code scan::events}），必须逐个列出，不能依赖 scan 的内部实现包。
+ */
+@org.springframework.modulith.ApplicationModule(
+        displayName = "Image",
+        allowedDependencies = {"shared", "user", "library", "jobs", "scan", "scan::spi", "scan::events"})
 package com.mymedia.image;
 ```
+
+> **别只写 `displayName`。** 计划 03 最初就是那样写的，等于对 `image` 不设限——
+> 「`video` 与 `image` 互不依赖」这句话在架构测试里根本没有强制点。
+> `video` 侧的这份声明已在审查计划 04 时补齐（`allowedDependencies = {"shared", "user",
+> "library", "scan", "scan::spi", "scan::events"}`，无 `jobs`，视频域不排任务），
+> 本模块从第一天起就写全。
+>
+> **命名接口的名字是 `events` 不是 `event`**：`scan/event/package-info.java` 上的注解是
+> `@NamedInterface("events")`，引用方必须写 `scan::events`。写错名字 Modulith 会在
+> `ApplicationModules` 初始化时直接抛「no named interface named ...」。
 
 `src/main/java/com/mymedia/image/ImageSourceKind.java`：
 
@@ -606,7 +632,12 @@ public class ImageNode {
     @Column(name = "total_page_count", nullable = false)
     private int totalPageCount;
 
-    @Column(name = "cover_asset_id")
+    /**
+     * 封面派生资源 id。**只读映射**：这一列由计划 05 的 preview 模块用一条
+     * {@code UPDATE ... WHERE cover_asset_id IS NULL} 原子写入，本实体只负责读出来展示。
+     * 做成可写会让一个在内存里待了一会儿的陈旧实体在下次 flush 时把刚生成好的封面刷回 null。
+     */
+    @Column(name = "cover_asset_id", insertable = false, updatable = false)
     private Long coverAssetId;
 
     /** 刮削或用户编辑得到的标题。为空时展示 {@link #name}。 */
@@ -731,13 +762,12 @@ public class ImageNode {
         this.childNodeCount = child;
         this.totalPageCount = total;
     }
-
-    /** 由计划 05 的 preview 模块回填。 */
-    void assignCover(Long assetId) {
-        this.coverAssetId = assetId;
-    }
 }
 ```
+
+> **没有 `assignCover` 这个 setter，是有意的。** 封面回填走计划 05 的
+> `JdbcTemplate` 原子更新，不经过 JPA；留一个 setter 只会给「两条写入路径同时存在」
+> 开口子。视频域的 `VideoItem.coverAssetId` 也按同样的只读形式处理（计划 06 Task 6 Step 5 补映射）。
 
 `src/main/java/com/mymedia/image/ImageFile.java`：
 
@@ -920,6 +950,7 @@ Expected: `EXIT=0`，`Tests run: 10, Failures: 0`
 
 **Files:**
 - Create: `src/main/java/com/mymedia/image/ImageNodeIndexer.java`
+- Create: `src/main/java/com/mymedia/image/event/package-info.java`
 - Create: `src/main/java/com/mymedia/image/event/ImageNodeCreated.java`
 - Test: `src/test/java/com/mymedia/image/ImageNodeIndexerTest.java`
 
@@ -1077,6 +1108,20 @@ cd /d/MyMedia && mvn -B -ntp test -Dtest=ImageNodeIndexerTest -DfailIfNoTests=fa
 ```
 
 - [ ] **Step 3: 写事件**
+
+先写命名接口声明。**Spring Modulith 默认把嵌套包当作模块内部实现**，
+`com.mymedia.image.event.ImageNodeCreated` 对 `image` 之外的模块是不可见的，
+计划 05 的 `preview` / `metadata` 想订阅它就会让 `ApplicationModules.verify()` 失败。
+名字必须是 **`events`**（复数），与 `scan/event` 和 `video/event` 上已经落地的写法一致——
+引用方写的是 `image::events`。
+
+`src/main/java/com/mymedia/image/event/package-info.java`：
+
+```java
+/** 图片域发布的领域事件，对全部模块开放，供 {@code preview} / {@code metadata} 订阅。 */
+@org.springframework.modulith.NamedInterface("events")
+package com.mymedia.image.event;
+```
 
 `src/main/java/com/mymedia/image/event/ImageNodeCreated.java`：
 
@@ -1247,9 +1292,10 @@ Expected: `EXIT=0`，`Tests run: 8, Failures: 0`
 - Test: `src/test/java/com/mymedia/image/ImageContentBuilderTest.java`
 
 **Interfaces:**
-- Consumes: `LibraryContentBuilder`、`MediaKind`、`ScannedFileDiscovered`、`ScannedFileVanished`（计划 02 Task 2、5、7）、`JobQueue`（计划 01 Task 10）、`ImageNodeIndexer`（Task 2）、各仓储（Task 1）
+- Consumes: `LibraryContentBuilder`、`MediaKind`、`ScannedFileDiscovered`、`ScannedFileChanged`、`ScannedFileVanished`（计划 02 Task 2、5、7 与 2026-08-18 的扫描修复）、`JobQueue`（计划 01 Task 10）、`ImageNodeIndexer`（Task 2）、各仓储（Task 1）
 - Produces:
   - `ImageContentBuilder implements LibraryContentBuilder`（package-private，Spring bean）
+    —— 三个回调 `onFileDiscovered` / `onFileChanged` / `onFileVanished` 都必须实现
   - `public class ImageCatalogService`
     - `public ImageNode getNode(Long nodeId)`
     - `public List<ImageNode> findRoots(Long libraryId)`
@@ -1449,8 +1495,74 @@ class ImageContentBuilderTest extends AbstractIntegrationTest {
         // 删掉意味着用户的阅读进度、收藏、手工元数据一并蒸发。
         assertThat(catalogService.pagesOf(node.getId())).hasSize(1);
     }
+
+    @Test
+    void changedArchiveIsReIndexed() throws IOException {
+        MediaLibrary library = libraryAtRoot();
+        writeArchive("漫画/vol01.cbz", "001.jpg", "002.jpg");
+        scan(library.getId());
+
+        // 重打同一个包，多一页。size 变了 → 物理层判定为 changed。
+        writeArchive("漫画/vol01.cbz", "001.jpg", "002.jpg", "003.jpg");
+        scan(library.getId());
+
+        ImageNode comics = catalogService.findRoots(library.getId()).getFirst();
+        ImageNode volume = browseService.childNodes(library.getId(), comics.getId()).getFirst();
+        assertThat(catalogService.pagesOf(volume.getId()))
+                .extracting(ImageFile::getArchiveEntryName)
+                .containsExactly("001.jpg", "002.jpg", "003.jpg");
+
+        // 两轮扫描各排一个 ARCHIVE_INDEX：dedup_key 只压 PENDING/RUNNING，
+        // 上一轮已经 SUCCEEDED，所以第二个任务能真正排出来。
+        Integer jobs = jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE type = 'ARCHIVE_INDEX'", Integer.class);
+        assertThat(jobs).isEqualTo(2);
+    }
+
+    @Test
+    void reactivatedArchiveIsReIndexedWithoutDuplicatingPages() throws IOException {
+        MediaLibrary library = libraryAtRoot();
+        writeArchive("漫画/vol01.cbz", "001.jpg", "002.jpg");
+        scan(library.getId());
+
+        ImageNode comics = catalogService.findRoots(library.getId()).getFirst();
+        Long volumeId = browseService.childNodes(library.getId(), comics.getId()).getFirst().getId();
+
+        Files.delete(root.resolve("漫画/vol01.cbz"));
+        scan(library.getId());                                   // → MISSING
+        writeArchive("漫画/vol01.cbz", "001.jpg", "002.jpg");     // 外接盘挂回来了
+        scan(library.getId());                                   // → reactivated
+
+        // 恢复走的是 changed(reactivated=true)，不是 discovered；
+        // ARCHIVE_INDEX 处理器先删旧行再重建，页不会翻倍。
+        assertThat(catalogService.pagesOf(volumeId)).hasSize(2);
+    }
+
+    @Test
+    void changedLooseImageKeepsTheSamePageRow() throws IOException {
+        MediaLibrary library = libraryAtRoot();
+        writeImage("图集/001.jpg");
+        scan(library.getId());
+
+        ImageNode node = catalogService.findRoots(library.getId()).getFirst();
+        Long pageId = catalogService.pagesOf(node.getId()).getFirst().getId();
+
+        Files.writeString(root.resolve("图集/001.jpg"), "改过的内容，长度不同");
+        scan(library.getId());
+
+        // 散图的内容变化对语义层没有影响：image_file 挂在 scanned_file_id 上，
+        // 换了内容还是同一行，也不该重复登记。
+        assertThat(catalogService.pagesOf(node.getId()))
+                .extracting(ImageFile::getId)
+                .containsExactly(pageId);
+    }
 }
 ```
+
+> **`ScannedFileChanged` 是 2026-08-18 那份扫描修复补进 SPI 的第三个回调**，
+> 计划 04 最初写的时候还没有它。它同时覆盖两件事：文件内容变了（size / mtime 变化），
+> 以及**路径从 MISSING 恢复**（`reactivated = true`）。对图片域这不是可以空实现的回调——
+> CBZ 的页表是上一次解包解出来的快照，包被重打过就必须重建，否则读者翻到的还是旧目录。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -1559,6 +1671,7 @@ package com.mymedia.image;
 
 import com.mymedia.jobs.JobQueue;
 import com.mymedia.library.LibraryDomain;
+import com.mymedia.scan.event.ScannedFileChanged;
 import com.mymedia.scan.event.ScannedFileDiscovered;
 import com.mymedia.scan.event.ScannedFileVanished;
 import com.mymedia.scan.spi.LibraryContentBuilder;
@@ -1578,6 +1691,9 @@ import org.springframework.transaction.annotation.Transactional;
  * </ul>
  *
  * <p>整个过程<b>幂等</b>：重复扫描同一批文件不产生重复节点或重复页。
+ *
+ * <p>三个回调对应物理层的三种结局：发现、变化（含从 {@code MISSING} 恢复）、消失。
+ * 只有第一种会建结构，第二种只对压缩包有意义，第三种什么都不做。
  */
 @Component
 class ImageContentBuilder implements LibraryContentBuilder {
@@ -1585,13 +1701,16 @@ class ImageContentBuilder implements LibraryContentBuilder {
     private static final Logger log = LoggerFactory.getLogger(ImageContentBuilder.class);
 
     private final ImageNodeIndexer indexer;
+    private final ImageNodeRepository nodeRepository;
     private final ImageFileRepository fileRepository;
     private final JobQueue jobQueue;
 
     ImageContentBuilder(ImageNodeIndexer indexer,
+                        ImageNodeRepository nodeRepository,
                         ImageFileRepository fileRepository,
                         JobQueue jobQueue) {
         this.indexer = indexer;
+        this.nodeRepository = nodeRepository;
         this.fileRepository = fileRepository;
         this.jobQueue = jobQueue;
     }
@@ -1609,6 +1728,29 @@ class ImageContentBuilder implements LibraryContentBuilder {
             case ARCHIVE -> registerArchive(event);
             default -> { /* VIDEO / IGNORED 与图片域无关 */ }
         }
+    }
+
+    @Override
+    @Transactional
+    public void onFileChanged(ScannedFileChanged event) {
+        // 压缩包的页表是「上一次解包解出来的快照」。包被重打过（size / mtime 变了），
+        // 或者外接盘挂回来（reactivated），快照都可能已经不对，必须重建。
+        //
+        // 这里能真正排出第二个任务，靠的是 dedup_key 的部分唯一索引只覆盖
+        // PENDING / RUNNING：上一轮的索引任务已经 SUCCEEDED，不构成冲突。
+        // 而 ARCHIVE_INDEX 处理器本身是「先按 scanned_file_id 删旧行再整体重建」的
+        // （Task 4 Step 4），所以重复执行不会留下重复页或错乱的页码。
+        nodeRepository.findByArchiveScannedFileId(event.scannedFileId()).ifPresent(node -> {
+            jobQueue.enqueue(ArchiveIndexJobHandler.JOB_TYPE,
+                    "{\"scannedFileId\":" + event.scannedFileId()
+                            + ",\"nodeId\":" + node.getId() + "}",
+                    "archive-index:" + event.scannedFileId());
+            log.info("压缩包内容变化，重排索引任务 node={} path={} reactivated={}",
+                    node.getId(), event.relativePath(), event.reactivated());
+        });
+
+        // 散图不需要做任何事：image_file 挂在 scanned_file_id 上，
+        // 换了内容还是同一行；从 MISSING 恢复也一样——语义层从来没删过它。
     }
 
     @Override
@@ -5189,7 +5331,7 @@ git commit -m "feat: 完成图片域阶段
 | `ImageNode.rename(newName, parentSortPath)` / `moveTo(parentId, parentPath, parentSortPath)` | Task 1 | Task 6 | ✓ |
 | `ImageNode.setCounts(direct, child, total)` | Task 1 | Task 5（走 SQL，方法留给单元测试与计划 05） | ✓ |
 | `ImageNode.isReadable/isBrowsable/getDisplayName` | Task 1 | Task 7 DTO、各测试 | ✓ |
-| `ImageNode.assignCover(assetId)` | Task 1 | 计划 05 的 preview 回填 | ✓ |
+| `image_node.cover_asset_id`（**只读**映射，无 setter） | Task 1 | 计划 05 的 preview 用 `JdbcTemplate` 原子回填 | ✓ |
 | `ImageFile(scannedFileId, nodeId, fileName)`（散图） | Task 1 | Task 3 | ✓ |
 | `ImageFile(scannedFileId, nodeId, entryName, pageIndex)`（压缩包） | Task 1 | Task 4 | ✓ |
 | `ImageFile.reattachTo(nodeId)` | Task 1 | Task 6 | ✓ |
@@ -5212,8 +5354,28 @@ git commit -m "feat: 完成图片域阶段
 | `ImageProgressService.record/find/continueReading` | Task 9 | Task 9 控制器、测试 | ✓ |
 | `NaturalSortKey.of(String)`（计划 03） | 计划 03 Task 1 | Task 1、4 | ✓ |
 | `MaterializedPath.rootPath/childOf/ancestorIds/depthOf`（计划 03） | 计划 03 Task 2 | Task 1、2、5、6、7 | ✓ |
-| `LibraryContentBuilder`（计划 02） | 计划 02 Task 7 | Task 3 实现 | ✓ |
+| `LibraryContentBuilder`（**三个回调**，计划 02 + 2026-08-18 扫描修复） | 计划 02 Task 7、`2026-08-18-scanning-important-fixes.md` Task 2 | Task 3 实现 | ✓ |
+| `ScannedFileChanged(id, libraryId, path, sizeBytes, mtime, reactivated)` | `2026-08-18-scanning-important-fixes.md` Task 2 | Task 3 的 `onFileChanged` | ✓ |
+| `scan::spi` / `scan::events` 命名接口 | 计划 02 + `2026-08-18-...` Task 3 | Task 1 的 `allowedDependencies` | ✓ |
 | `JobPoller.pollOnce()`（计划 02） | 计划 02 Task 7 | Task 3–9 的测试 | ✓ |
+
+**执行前复核补进来的三处（2026-08-19，计划 03 执行完之后）**
+
+本计划写于 2026-08-17，此后 `main` 上落了 `2026-08-18-scanning-important-fixes.md`，
+扫描 SPI 和模块契约都变了。复核时按现在的 `main` 对齐了三处：
+
+1. **`LibraryContentBuilder` 多了第三个回调 `onFileChanged`。** 不实现直接编译不过。
+   而且对图片域它有真实语义——CBZ 被重打过就必须重排 `ARCHIVE_INDEX`，
+   否则页表停在旧快照。已补进 Task 3（实现 + 三条测试）。
+   视频域的同名回调是 no-op，因为视频文件的语义结构不依赖文件内容；图片域依赖。
+2. **`image.event` 要 `@NamedInterface("events")`，`image` 模块要显式 `allowedDependencies`。**
+   Modulith 默认把嵌套包当模块内部实现，计划 05 的 `preview` / `metadata` 订阅
+   `ImageNodeCreated` 会让 `verify()` 失败。名字是**复数 `events`**，与 `scan` / `video`
+   已落地的写法一致。已补进 Task 1 Step 4 与 Task 2 Step 3。
+   （同一轮复核里也把 `video` 模块缺失的 `allowedDependencies` 直接补进了代码。）
+3. **`ImageNode.coverAssetId` 改成只读映射并删掉 `assignCover`。** 计划 05 用
+   `JdbcTemplate` 的 `UPDATE ... WHERE cover_asset_id IS NULL` 原子回填这一列，
+   留一个 JPA setter 就是第二条写入路径，陈旧实体 flush 时会把封面刷回 null。
 
 **编写中发现并已处理的三处**
 

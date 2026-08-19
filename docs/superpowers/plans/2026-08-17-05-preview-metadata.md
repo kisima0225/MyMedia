@@ -32,7 +32,9 @@ metadata → shared, library, jobs, scan, video, image
 video / image → 绝不引用 preview / metadata
 ```
 
-**这条约束由 `ModularityTests` 强制**，实现方式是本计划 Task 6 给 `video` / `image` 的 `package-info.java` 补上显式 `allowedDependencies`（计划 03、04 只写了 `displayName`，等于不设限）。
+**这条约束由 `ModularityTests` 强制**，强制点是各模块 `package-info.java` 上的显式 `allowedDependencies`。
+`video` 那份已在 `main` 上（2026-08-19 补），`image` 那份由计划 04 Task 1 写全；
+本计划 Task 6 只负责 `preview` / `metadata` 自己的两份，并核对上游没走样。
 
 **为什么这里不做 SPI 倒置**（ADR-004 的素材，写代码时心里要有这个答案）：
 
@@ -3480,9 +3482,26 @@ git commit -m "feat: 添加进度条雪碧图与 WebVTT 索引
 
 ### 命名接口：这是 `verify()` 能过的前提
 
-Spring Modulith 把模块的**嵌套包视为内部实现**。`com.mymedia.scan.event.ScannedFileDiscovered` 对 `scan` 之外的模块默认是不可见的，跨模块引用会让 `ApplicationModules.verify()` 直接失败。要让它可见，必须在该包上声明 `@NamedInterface`，引用方再在 `allowedDependencies` 里写 `scan::event`。
+Spring Modulith 把模块的**嵌套包视为内部实现**。`com.mymedia.scan.event.ScannedFileDiscovered` 对 `scan` 之外的模块默认是不可见的，跨模块引用会让 `ApplicationModules.verify()` 直接失败。要让它可见，必须在该包上声明 `@NamedInterface`，引用方再在 `allowedDependencies` 里写 `scan::events`。
 
-计划 02、03、04 都把公开类型放进了嵌套包却没有写这个声明。**本步负责补齐；若上游执行时已经补过（内容等价），跳过即可。**
+**名字必须是复数 `events`。** `main` 上已经落地的两个声明用的就是这个名字
+（`scan/event/package-info.java` 与 `video/event/package-info.java`，均为
+`@NamedInterface("events")`，由 `2026-08-18-scanning-important-fixes.md` Task 3
+与计划 03 的执行分别落下）。写成 `scan::event` 会让 Modulith 在 `ApplicationModules`
+初始化时直接抛「no named interface named 'event'」——**这不是 verify 的断言失败，
+是加载期异常，整批架构测试一起挂**。`scan::spi` 那个名字是 `spi`，对得上，不用动。
+
+**到本步为止的实际状态**（执行前用 `cat` 逐个核对，不要凭这份计划的记忆）：
+
+| 文件 | 状态 |
+|---|---|
+| `scan/spi/package-info.java` | ✅ 已存在，`@NamedInterface(name = "spi")` |
+| `scan/event/package-info.java` | ✅ 已存在，`@NamedInterface("events")` |
+| `video/event/package-info.java` | ✅ 已存在，`@NamedInterface("events")` |
+| `image/event/package-info.java` | 由**计划 04 Task 2 Step 3** 创建，`@NamedInterface("events")` |
+
+也就是说本步正常情况下**一个文件都不用改**，只需核对四个名字都是预期的那个。
+下面四段代码是核对基准，只有在某个文件确实缺失或名字不同的时候才动它。
 
 ### 两张网
 
@@ -3514,7 +3533,7 @@ package com.mymedia.scan.spi;
 
 ```java
 /** 扫描过程发布的领域事件，对全部模块开放。 */
-@org.springframework.modulith.NamedInterface("event")
+@org.springframework.modulith.NamedInterface("events")
 package com.mymedia.scan.event;
 ```
 
@@ -3522,7 +3541,7 @@ package com.mymedia.scan.event;
 
 ```java
 /** 视频域发布的领域事件，供 {@code preview} / {@code metadata} 订阅。 */
-@org.springframework.modulith.NamedInterface("event")
+@org.springframework.modulith.NamedInterface("events")
 package com.mymedia.video.event;
 ```
 
@@ -3530,13 +3549,23 @@ package com.mymedia.video.event;
 
 ```java
 /** 图片域发布的领域事件，供 {@code preview} / {@code metadata} 订阅。 */
-@org.springframework.modulith.NamedInterface("event")
+@org.springframework.modulith.NamedInterface("events")
 package com.mymedia.image.event;
 ```
 
 - [ ] **Step 2: 收紧两个领域模块的允许依赖**
 
 这一步把「`video` / `image` 绝不引用 `preview` / `metadata`」从口头约定变成测试强制。
+
+⚠ **`video` 与 `image` 的这两份声明已经不由本步负责了**，本步只负责 `preview` / `metadata` 自己那份：
+
+- `video/package-info.java` 已在 `main` 上收紧（2026-08-19 审查计划 04 时补的），
+  实际内容是 `{"shared", "user", "library", "scan", "scan::spi", "scan::events"}`——
+  **没有 `jobs`**，视频域不排任务，多写一个用不到的依赖没有意义。
+- `image/package-info.java` 由计划 04 Task 1 Step 4 从第一天就写全，带 `jobs`（要排 `ARCHIVE_INDEX`）。
+
+下面两段保留为核对基准。若与实际不符，以「实际能让 `ModularityTests` 通过的最小集合」为准，
+**不要为了对齐这份计划去给模块加它根本不用的依赖**。
 
 `src/main/java/com/mymedia/video/package-info.java`：
 
@@ -3550,7 +3579,7 @@ package com.mymedia.image.event;
  */
 @org.springframework.modulith.ApplicationModule(
         displayName = "Video",
-        allowedDependencies = {"shared", "user", "library", "jobs", "scan", "scan::spi", "scan::event"})
+        allowedDependencies = {"shared", "user", "library", "jobs", "scan", "scan::spi", "scan::events"})
 package com.mymedia.video;
 ```
 
@@ -3566,15 +3595,15 @@ package com.mymedia.video;
  */
 @org.springframework.modulith.ApplicationModule(
         displayName = "Image",
-        allowedDependencies = {"shared", "user", "library", "jobs", "scan", "scan::spi", "scan::event"})
+        allowedDependencies = {"shared", "user", "library", "jobs", "scan", "scan::spi", "scan::events"})
 package com.mymedia.image;
 ```
 
 `src/main/java/com/mymedia/preview/package-info.java` 的 `allowedDependencies` 改为：
 
 ```java
-        allowedDependencies = {"shared", "library", "jobs", "scan", "scan::event",
-                               "video", "video::event", "image", "image::event"})
+        allowedDependencies = {"shared", "library", "jobs", "scan", "scan::events",
+                               "video", "video::events", "image", "image::events"})
 ```
 
 - [ ] **Step 3: 写会失败的接线测试**
@@ -9112,8 +9141,8 @@ class ScrapeCandidateController {
 修改 `src/main/java/com/mymedia/metadata/package-info.java` 的 `allowedDependencies`：
 
 ```java
-        allowedDependencies = {"shared", "user", "library", "jobs", "scan", "scan::event",
-                               "video", "video::event", "image", "image::event"})
+        allowedDependencies = {"shared", "user", "library", "jobs", "scan", "scan::events",
+                               "video", "video::events", "image", "image::events"})
 ```
 
 - [ ] **Step 10: 运行测试确认通过**
