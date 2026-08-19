@@ -17,10 +17,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.EOFException;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -30,6 +33,9 @@ import java.time.ZonedDateTime;
 @RestController
 @RequestMapping("/api/video/stream")
 class VideoStreamController {
+
+    private static final int MAX_ZERO_TRANSFER_ATTEMPTS = 3;
+    private static final int DIRECT_BUFFER_SIZE = 16 * 1024;
 
     private final VideoStreamService streamService;
     private final UserQueryService userQueryService;
@@ -104,25 +110,88 @@ class VideoStreamController {
         }
     }
 
-    /** 用 FileChannel.transferTo 把指定区间写入响应输出流。 */
+    /**
+     * 优先用 FileChannel.transferTo 写出；底层实现持续零进度时才切换到
+     * 有界 direct buffer，避免在声明的 Content-Length 下静默短写。
+     */
     private static StreamingResponseBody writer(VideoStreamService.StreamTarget target,
                                                 long position, long count) {
         return output -> {
             try (FileChannel channel = FileChannel.open(target.path(), StandardOpenOption.READ);
                  WritableByteChannel sink = Channels.newChannel(output)) {
-                long offset = position;
-                long remaining = count;
-                while (remaining > 0) {
-                    long transferred = channel.transferTo(offset, remaining, sink);
-                    if (transferred <= 0) {
-                        break;
-                    }
-                    offset += transferred;
-                    remaining -= transferred;
-                }
-            } catch (IOException e) {
-                // 客户端拖动进度条中断连接时，响应已经无法继续写出。
+                transferRange(channel, sink, target.path(), position, count);
             }
         };
+    }
+
+    private static void transferRange(FileChannel source, WritableByteChannel sink,
+                                      Path path, long position, long count)
+            throws IOException {
+        long offset = position;
+        long remaining = count;
+        int zeroTransferAttempts = 0;
+
+        while (remaining > 0) {
+            long transferred = source.transferTo(offset, remaining, sink);
+            if (transferred > 0) {
+                offset += transferred;
+                remaining -= transferred;
+                zeroTransferAttempts = 0;
+                continue;
+            }
+
+            zeroTransferAttempts++;
+            if (zeroTransferAttempts < MAX_ZERO_TRANSFER_ATTEMPTS) {
+                continue;
+            }
+            transferWithDirectBuffer(source, sink, path, offset, remaining);
+            return;
+        }
+    }
+
+    private static void transferWithDirectBuffer(FileChannel source, WritableByteChannel sink,
+                                                 Path path, long position, long count)
+            throws IOException {
+        ByteBuffer buffer = ByteBuffer.allocateDirect(
+                (int) Math.min(DIRECT_BUFFER_SIZE, count));
+        long offset = position;
+        long remaining = count;
+
+        while (remaining > 0) {
+            buffer.clear();
+            buffer.limit((int) Math.min(buffer.capacity(), remaining));
+            int read = source.read(buffer, offset);
+            if (read < 0) {
+                throw new EOFException("视频文件提前结束: " + path
+                        + "，仍有 " + remaining + " 字节未写出");
+            }
+            if (read == 0) {
+                throw new IOException("读取视频文件时无进展: " + path);
+            }
+
+            buffer.flip();
+            writeBuffer(sink, buffer, path);
+            offset += read;
+            remaining -= read;
+        }
+    }
+
+    private static void writeBuffer(WritableByteChannel sink, ByteBuffer buffer,
+                                    Path path) throws IOException {
+        int zeroWriteAttempts = 0;
+        while (buffer.hasRemaining()) {
+            int written = sink.write(buffer);
+            if (written < 0) {
+                throw new EOFException("响应输出流提前关闭: " + path);
+            }
+            if (written == 0) {
+                zeroWriteAttempts++;
+                if (zeroWriteAttempts >= MAX_ZERO_TRANSFER_ATTEMPTS) {
+                    throw new IOException("写出视频响应时无进展: " + path);
+                }
+                continue;
+            }
+            zeroWriteAttempts = 0;
+        }
     }
 }

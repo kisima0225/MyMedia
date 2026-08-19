@@ -10,15 +10,27 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import org.mockito.MockedStatic;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class VideoStreamControllerUnitTest {
@@ -98,6 +110,57 @@ class VideoStreamControllerUnitTest {
         assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE)).isEqualTo("bytes */20");
         assertThat(response.getHeaders().getContentLength()).isZero();
         assertThat(response.getBody()).isNull();
+    }
+
+    @Test
+    void zeroTransferFallsBackToDirectBufferUntilRangeIsWritten() throws Exception {
+        VideoStreamService.StreamTarget target = target();
+        VideoStreamController controller = controller(target);
+        FileChannel channel = mock(FileChannel.class);
+        byte[] source = CONTENT.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        when(channel.transferTo(anyLong(), anyLong(), any())).thenReturn(0L);
+        when(channel.read(any(ByteBuffer.class), anyLong())).thenAnswer(invocation -> {
+            ByteBuffer destination = invocation.getArgument(0);
+            long position = invocation.getArgument(1);
+            int sourcePosition = Math.toIntExact(position);
+            int length = Math.min(destination.remaining(), source.length - sourcePosition);
+            destination.put(source, sourcePosition, length);
+            return length;
+        });
+
+        try (MockedStatic<FileChannel> fileChannelOpen = mockStatic(FileChannel.class)) {
+            fileChannelOpen.when(() -> FileChannel.open(target.path(), StandardOpenOption.READ))
+                    .thenReturn(channel);
+
+            var response = controller.stream(principal(), FILE_ID, "bytes=3-10", null);
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            response.getBody().writeTo(output);
+
+            assertThat(output.toByteArray()).isEqualTo(Arrays.copyOfRange(source, 3, 11));
+        }
+
+        verify(channel, atLeast(2)).transferTo(anyLong(), anyLong(), any());
+        verify(channel, atLeast(1)).read(any(ByteBuffer.class), anyLong());
+    }
+
+    @Test
+    void streamingIoFailureIsPropagated() throws Exception {
+        VideoStreamService.StreamTarget target = target();
+        VideoStreamController controller = controller(target);
+        FileChannel channel = mock(FileChannel.class);
+        IOException failure = new IOException("disk read failed");
+        when(channel.transferTo(anyLong(), anyLong(), any())).thenThrow(failure);
+
+        try (MockedStatic<FileChannel> fileChannelOpen = mockStatic(FileChannel.class)) {
+            fileChannelOpen.when(() -> FileChannel.open(target.path(), StandardOpenOption.READ))
+                    .thenReturn(channel);
+
+            var response = controller.stream(principal(), FILE_ID, null, null);
+
+            assertThatThrownBy(() -> response.getBody().writeTo(new ByteArrayOutputStream()))
+                    .isSameAs(failure);
+        }
     }
 
     private VideoStreamController controller(VideoStreamService.StreamTarget target) {
