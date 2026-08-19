@@ -12,6 +12,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 把扫描发现的视频文件构建成语义结构。
@@ -35,6 +39,7 @@ class VideoContentBuilder implements LibraryContentBuilder {
     private final VideoFileRepository fileRepository;
     private final VideoFolderIndexer folderIndexer;
     private final ApplicationEventPublisher events;
+    private final ReentrantLock discoveryLock = new ReentrantLock();
 
     VideoContentBuilder(VideoItemRepository itemRepository,
                         VideoGroupRepository groupRepository,
@@ -60,28 +65,53 @@ class VideoContentBuilder implements LibraryContentBuilder {
             return;
         }
 
-        // 幂等保护：同一个物理文件只建一次语义记录。
-        if (fileRepository.findByScannedFileId(event.scannedFileId()).isPresent()) {
-            return;
-        }
-
-        ParsedVideoName parsed = VideoFilenameParser.parse(event.relativePath());
-        VideoItem item = findOrCreateItem(event.libraryId(), parsed, event.relativePath());
-
-        VideoFile file = new VideoFile(
-                event.scannedFileId(), item.getId(), VideoFileRole.PRIMARY, event.relativePath());
-
-        if (parsed.season() != null || parsed.episode() != null) {
-            if (item.getStructure() != VideoStructure.GROUPED) {
-                item.promoteToGrouped();
+        discoveryLock.lock();
+        boolean releaseAfterCompletion = false;
+        try {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        discoveryLock.unlock();
+                    }
+                });
+                releaseAfterCompletion = true;
             }
-            int seasonIndex = parsed.season() == null ? 1 : parsed.season();
-            VideoGroup group = findOrCreateGroup(item.getId(), seasonIndex);
-            file.assignGroup(group.getId(), parsed.episode());
-        }
 
-        fileRepository.saveAndFlush(file);
-        folderIndexer.attachItemToFolder(event.libraryId(), event.relativePath(), item);
+            // 幂等保护：同一个物理文件只建一次语义记录。
+            if (fileRepository.findByScannedFileId(event.scannedFileId()).isPresent()) {
+                return;
+            }
+
+            ParsedVideoName parsed = VideoFilenameParser.parse(event.relativePath());
+            ItemResolution resolution = findOrCreateItem(event.libraryId(), parsed, event.relativePath());
+            VideoItem item = resolution.item();
+
+            VideoFile file = new VideoFile(
+                    event.scannedFileId(), item.getId(), VideoFileRole.PRIMARY, event.relativePath());
+
+            if (parsed.season() != null || parsed.episode() != null) {
+                if (item.getStructure() != VideoStructure.GROUPED) {
+                    item.promoteToGrouped();
+                }
+                int seasonIndex = parsed.season() == null ? 1 : parsed.season();
+                VideoGroup group = findOrCreateGroup(item.getId(), seasonIndex);
+                file.assignGroup(group.getId(), parsed.episode());
+            }
+
+            fileRepository.saveAndFlush(file);
+            folderIndexer.attachItemToFolder(event.libraryId(), event.relativePath(), item);
+
+            if (resolution.created()) {
+                // 保持事务内发布；消费者必须使用事务感知 listener，不能改成裸 afterCommit 回调而丢失事务出版物。
+                events.publishEvent(new VideoItemCreated(
+                        item.getId(), event.libraryId(), item.getTitle()));
+            }
+        } finally {
+            if (!releaseAfterCompletion) {
+                discoveryLock.unlock();
+            }
+        }
     }
 
     @Override
@@ -98,8 +128,9 @@ class VideoContentBuilder implements LibraryContentBuilder {
         log.debug("视频文件不可用: {}", event.relativePath());
     }
 
-    private VideoItem findOrCreateItem(Long libraryId, ParsedVideoName parsed, String relativePath) {
+    private ItemResolution findOrCreateItem(Long libraryId, ParsedVideoName parsed, String relativePath) {
         return itemRepository.findByLibraryIdAndTitle(libraryId, parsed.title())
+                .map(item -> new ItemResolution(item, false))
                 .orElseGet(() -> {
                     VideoItemType type = inferType(parsed);
                     VideoStructure structure = hasSeasonOrEpisode(parsed)
@@ -109,9 +140,7 @@ class VideoContentBuilder implements LibraryContentBuilder {
                             new VideoItem(libraryId, type, structure, parsed.title()));
                     log.info("新建视频条目 id={} title={} type={} from={}",
                             created.getId(), parsed.title(), type, relativePath);
-                    events.publishEvent(new VideoItemCreated(
-                            created.getId(), libraryId, parsed.title()));
-                    return created;
+                    return new ItemResolution(created, true);
                 });
     }
 
@@ -133,5 +162,8 @@ class VideoContentBuilder implements LibraryContentBuilder {
 
     private static boolean hasSeasonOrEpisode(ParsedVideoName parsed) {
         return parsed.season() != null || parsed.episode() != null;
+    }
+
+    private record ItemResolution(VideoItem item, boolean created) {
     }
 }

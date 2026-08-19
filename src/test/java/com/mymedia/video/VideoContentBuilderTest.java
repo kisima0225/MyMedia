@@ -140,7 +140,14 @@ class VideoContentBuilderTest extends AbstractIntegrationTest {
         scan(library.getId());
 
         // 重复扫描不应产生重复条目
-        assertThat(catalogService.findByLibrary(library.getId())).hasSize(1);
+        VideoItem item = catalogService.findByLibrary(library.getId()).getFirst();
+        List<VideoFile> files = catalogService.filesOf(item.getId());
+        assertThat(files).hasSize(1);
+        assertThat(files)
+                .extracting(VideoFile::getScannedFileId)
+                .hasSize(1)
+                .doesNotContainNull()
+                .doesNotHaveDuplicates();
     }
 
     @Test
