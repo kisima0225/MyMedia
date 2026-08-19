@@ -20,6 +20,55 @@
 
 本计划新增：
 
+### 需要跑任务的集成测试必须自己打开 `JobPoller`
+
+`AbstractIntegrationTest` 上写着 `@TestPropertySource(properties = "mymedia.jobs.enabled=false")`，
+而 `JobPoller` 的唯一实现 `JobScheduler` 是
+`@ConditionalOnProperty(prefix = "mymedia.jobs", name = "enabled", havingValue = "true")`。
+两条加起来的后果是：**默认情况下容器里根本没有 `JobPoller` 这个 bean**，
+`@Autowired JobPoller` 会让 Spring 上下文启动失败，一条断言都跑不到。
+
+所以本计划里每个 `@Autowired JobPoller` 的测试类都带这段（计划 03 的七个测试类同样写法）：
+
+```java
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
+```
+
+`poll-interval` 拉到一小时是为了**关掉后台定时轮询**：留着默认的 `PT5S`，
+调度线程会和测试里手动的 `pollOnce()` 抢同一批任务，测试就变成看运气。
+手动轮询是唯一的触发源，这两条属性缺一不可。
+
+**而且 `pollOnce()` 是异步的。** 它的 javadoc 写得很清楚：「立即执行一轮抢占并
+**异步**提交任务处理，方法本身同步返回」。所以「调两次 `pollOnce()` 就等于
+扫描 + 索引都跑完了」是错的——第一次调用返回时扫描任务八成还在跑，
+第二次调用抢不到还没被排出来的 `ARCHIVE_INDEX`。计划 03 执行时就栽在这上面，
+最后靠 Awaitility 补救（见 `146b7e3`、`39396c3`）。
+
+本计划统一用这个助手，**不要靠数 `pollOnce()` 的次数去凑时序**：
+
+```java
+/** 轮询到队列排空为止。 */
+private void scan(Long libraryId) {
+    scanTrigger.requestScan(libraryId);
+    await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+        jobPoller.pollOnce();
+        assertThat(pendingOrRunningJobs()).isZero();
+    });
+}
+
+private int pendingOrRunningJobs() {
+    return jdbc.queryForObject(
+            "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')", Integer.class);
+}
+```
+
+唯一的例外是 Task 3 里那条「只跑扫描、看 `ARCHIVE_INDEX` 有没有排出来」的用例：
+它必须只轮询一次、然后不再轮询地等扫描任务结束，否则索引任务会被顺手跑掉，
+用例就白写了。那里单独写了等待逻辑并注明了理由。
+
 ### 依赖坐标（已实测：下载 jar + `javap` + 实跑验证）
 
 | 用途 | 坐标 | 版本 |
@@ -1320,7 +1369,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 
+import java.time.Duration;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -1332,7 +1383,12 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class ImageContentBuilderTest extends AbstractIntegrationTest {
 
     @TempDir
@@ -1380,13 +1436,22 @@ class ImageContentBuilderTest extends AbstractIntegrationTest {
     }
 
     /**
-     * 扫描任务本身会再排出 ARCHIVE_INDEX 任务，而后者不可能落进同一轮抢占的批次里，
-     * 所以要多跑一轮。这不是测试凑数，是任务队列的真实行为。
+     * 扫描任务本身会再排出 ARCHIVE_INDEX 任务，后者不可能落进同一轮抢占的批次里，
+     * 所以要多跑几轮。而且 {@code pollOnce()} 是<b>异步提交、同步返回</b>的——
+     * 它返回不代表任务已经跑完。靠数 pollOnce() 的次数凑时序必然 flaky，
+     * 这里改成「反复轮询直到队列排空」。
      */
     private void scan(Long libraryId) {
         scanTrigger.requestScan(libraryId);
-        jobPoller.pollOnce();
-        jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(pendingOrRunningJobs()).isZero();
+        });
+    }
+
+    private int pendingOrRunningJobs() {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')", Integer.class);
     }
 
     @Test
@@ -1425,7 +1490,14 @@ class ImageContentBuilderTest extends AbstractIntegrationTest {
         writeArchive("漫画/vol01.cbz", "001.jpg", "002.jpg");
 
         scanTrigger.requestScan(library.getId());
-        jobPoller.pollOnce();          // 只跑扫描，先看索引任务有没有排出来
+        // 只轮询一次：这一轮抢到的只可能是那个 LIBRARY_SCAN 任务（当时队列里没有别的）。
+        // 然后<b>不再轮询</b>地等它结束，ARCHIVE_INDEX 就会停在 PENDING 上等着被数。
+        // 若这里用「轮询到排空」的助手，索引任务会被顺手跑掉，这条用例就白写了。
+        jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM job WHERE type = 'LIBRARY_SCAN' AND status = 'SUCCEEDED'",
+                        Integer.class)).isEqualTo(1));
 
         ImageNode comics = catalogService.findRoots(library.getId()).getFirst();
         ImageNode volume = browseService.childNodes(library.getId(), comics.getId()).getFirst();
@@ -2034,7 +2106,10 @@ import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Duration;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -2046,11 +2121,19 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class ArchiveIndexJobHandlerTest extends AbstractIntegrationTest {
 
     @TempDir
     Path root;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     @Autowired
     ScanTrigger scanTrigger;
@@ -2084,10 +2167,18 @@ class ArchiveIndexJobHandlerTest extends AbstractIntegrationTest {
         }
     }
 
+    /** 轮询到队列排空为止：扫描会再排出 ARCHIVE_INDEX，而 pollOnce() 是异步提交、同步返回的。 */
     private void scanAndIndex(Long libraryId) {
         scanTrigger.requestScan(libraryId);
-        jobPoller.pollOnce();      // 扫描
-        jobPoller.pollOnce();      // 索引压缩包
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(pendingOrRunningJobs()).isZero();
+        });
+    }
+
+    private int pendingOrRunningJobs() {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')", Integer.class);
     }
 
     private ImageNode archiveNodeOf(MediaLibrary library) {
@@ -2481,14 +2572,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 
+import java.time.Duration;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class ImageLibraryRecalculatorTest extends AbstractIntegrationTest {
 
     @TempDir
@@ -2525,10 +2623,18 @@ class ImageLibraryRecalculatorTest extends AbstractIntegrationTest {
         Files.writeString(file, "img-" + relative);
     }
 
+    /** 轮询到队列排空为止，理由见 Global Constraints「需要跑任务的集成测试」。 */
     private void scan(Long libraryId) {
         scanTrigger.requestScan(libraryId);
-        jobPoller.pollOnce();
-        jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(pendingOrRunningJobs()).isZero();
+        });
+    }
+
+    private int pendingOrRunningJobs() {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')", Integer.class);
     }
 
     @Test
@@ -2912,7 +3018,10 @@ import com.mymedia.scan.ScanTrigger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Duration;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -2924,11 +3033,19 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class ImageTreeRelocatorTest extends AbstractIntegrationTest {
 
     @TempDir
     Path root;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     @Autowired
     ScanTrigger scanTrigger;
@@ -2968,10 +3085,18 @@ class ImageTreeRelocatorTest extends AbstractIntegrationTest {
         }
     }
 
+    /** 轮询到队列排空为止，理由见 Global Constraints「需要跑任务的集成测试」。 */
     private void scan(Long libraryId) {
         scanTrigger.requestScan(libraryId);
-        jobPoller.pollOnce();
-        jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(pendingOrRunningJobs()).isZero();
+        });
+    }
+
+    private int pendingOrRunningJobs() {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')", Integer.class);
     }
 
     private ImageNode rootNamed(MediaLibrary library, String name) {
@@ -3578,7 +3703,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Duration;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -3590,12 +3718,20 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.awaitility.Awaitility.await;
 
 @AutoConfigureMockMvc
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class ImageBrowseServiceTest extends AbstractIntegrationTest {
 
     @TempDir
     Path root;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     @Autowired
     MockMvc mockMvc;
@@ -3623,12 +3759,24 @@ class ImageBrowseServiceTest extends AbstractIntegrationTest {
 
     private String username;
 
+    /** 轮询到队列排空为止，理由见 Global Constraints「需要跑任务的集成测试」。 */
+    private void scan(Long libraryId) {
+        scanTrigger.requestScan(libraryId);
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(pendingOrRunningJobs()).isZero();
+        });
+    }
+
+    private int pendingOrRunningJobs() {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')", Integer.class);
+    }
+
     private MediaLibrary setUpLibrary() {
         MediaLibrary library = libraryService.create(
                 "库" + UUID.randomUUID(), LibraryDomain.IMAGE, root.toString());
-        scanTrigger.requestScan(library.getId());
-        jobPoller.pollOnce();
-        jobPoller.pollOnce();
+        scan(library.getId());
 
         username = "u" + UUID.randomUUID().toString().substring(0, 8);
         UserAccount user = registrationService.register(username, "pw", UserRole.USER);
@@ -3774,8 +3922,7 @@ class ImageBrowseServiceTest extends AbstractIntegrationTest {
 
         MediaLibrary hidden = libraryService.create(
                 "隐藏" + UUID.randomUUID(), LibraryDomain.IMAGE, root.toString());
-        scanTrigger.requestScan(hidden.getId());
-        jobPoller.pollOnce();
+        scan(hidden.getId());
 
         mockMvc.perform(get("/api/image/nodes").with(httpBasic(username, "pw")))
                 .andExpect(status().isOk())
@@ -4138,7 +4285,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Duration;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -4154,12 +4304,20 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.awaitility.Awaitility.await;
 
 @AutoConfigureMockMvc
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class ImagePageControllerTest extends AbstractIntegrationTest {
 
     @TempDir
     Path root;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     @Autowired
     MockMvc mockMvc;
@@ -4207,11 +4365,23 @@ class ImagePageControllerTest extends AbstractIntegrationTest {
         }
     }
 
+    /** 轮询到队列排空为止，理由见 Global Constraints「需要跑任务的集成测试」。 */
+    private void scan(Long libraryId) {
+        scanTrigger.requestScan(libraryId);
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(pendingOrRunningJobs()).isZero();
+        });
+    }
+
+    private int pendingOrRunningJobs() {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')", Integer.class);
+    }
+
     private void scanAndGrant() {
         library = libraryService.create("库" + UUID.randomUUID(), LibraryDomain.IMAGE, root.toString());
-        scanTrigger.requestScan(library.getId());
-        jobPoller.pollOnce();
-        jobPoller.pollOnce();
+        scan(library.getId());
 
         username = "u" + UUID.randomUUID().toString().substring(0, 8);
         UserAccount user = registrationService.register(username, "pw", UserRole.USER);
@@ -4219,9 +4389,7 @@ class ImagePageControllerTest extends AbstractIntegrationTest {
     }
 
     private void rescan() {
-        scanTrigger.requestScan(library.getId());
-        jobPoller.pollOnce();
-        jobPoller.pollOnce();
+        scan(library.getId());
     }
 
     @Test
@@ -4644,7 +4812,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Duration;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -4656,12 +4827,20 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.awaitility.Awaitility.await;
 
 @AutoConfigureMockMvc
+@TestPropertySource(properties = {
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H"
+})
 class ImageProgressServiceTest extends AbstractIntegrationTest {
 
     @TempDir
     Path root;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     @Autowired
     MockMvc mockMvc;
@@ -4693,12 +4872,24 @@ class ImageProgressServiceTest extends AbstractIntegrationTest {
         Files.writeString(file, "img-" + relative);
     }
 
+    /** 轮询到队列排空为止，理由见 Global Constraints「需要跑任务的集成测试」。 */
+    private void scan(Long libraryId) {
+        scanTrigger.requestScan(libraryId);
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(pendingOrRunningJobs()).isZero();
+        });
+    }
+
+    private int pendingOrRunningJobs() {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')", Integer.class);
+    }
+
     private MediaLibrary scannedLibrary() {
         MediaLibrary library = libraryService.create(
                 "库" + UUID.randomUUID(), LibraryDomain.IMAGE, root.toString());
-        scanTrigger.requestScan(library.getId());
-        jobPoller.pollOnce();
-        jobPoller.pollOnce();
+        scan(library.getId());
         return library;
     }
 
