@@ -37,11 +37,7 @@ class ImageNodeIndexer {
     @Transactional
     ImageNode directoryNodeFor(Long libraryId, String relativePath) {
         int lastSlash = relativePath.lastIndexOf('/');
-        if (lastSlash < 0) {
-            String libraryName = libraryService.getById(libraryId).getName();
-            return findOrCreateChild(libraryId, null, libraryName);
-        }
-        return walk(libraryId, relativePath.substring(0, lastSlash));
+        return directoryPathNode(libraryId, lastSlash < 0 ? "" : relativePath.substring(0, lastSlash));
     }
 
     /**
@@ -57,7 +53,7 @@ class ImageNodeIndexer {
         }
 
         int lastSlash = relativePath.lastIndexOf('/');
-        ImageNode parent = lastSlash < 0 ? null : walk(libraryId, relativePath.substring(0, lastSlash));
+        ImageNode parent = lastSlash < 0 ? null : directoryPathNode(libraryId, relativePath.substring(0, lastSlash));
         String fileName = relativePath.substring(lastSlash + 1);
         String nodeName = stripExtension(fileName);
 
@@ -104,13 +100,45 @@ class ImageNodeIndexer {
         return saved;
     }
 
-    private ImageNode walk(Long libraryId, String directoryPath) {
+    /** 按目录路径查找或创建节点链。{@code directoryPath} 为空串时返回库根收容节点。 */
+    @Transactional
+    ImageNode directoryPathNode(Long libraryId, String directoryPath) {
+        if (directoryPath.isEmpty()) {
+            return findOrCreateChild(libraryId, null, libraryService.getById(libraryId).getName());
+        }
+        ImageNode current = null;
+        for (String segment : directoryPath.split("/")) {
+            if (!segment.isEmpty()) {
+                current = findOrCreateChild(libraryId, current, segment);
+            }
+        }
+        return current;
+    }
+
+    /**
+     * 按目录路径只查找、不创建。任何一层不存在就返回 {@code null}。
+     *
+     * <p>改名与移动的处理需要区分"这个目录还在树里"和"它已经跟着祖先一起搬走了"，
+     * 用 find-or-create 会把后者错认成前者并造出一个空壳。
+     */
+    @Transactional(readOnly = true)
+    ImageNode resolveDirectory(Long libraryId, String directoryPath) {
+        if (directoryPath.isEmpty()) {
+            return nodeRepository.findByLibraryIdAndParentIdIsNullAndName(
+                    libraryId, libraryService.getById(libraryId).getName()).orElse(null);
+        }
         ImageNode current = null;
         for (String segment : directoryPath.split("/")) {
             if (segment.isEmpty()) {
                 continue;
             }
-            current = findOrCreateChild(libraryId, current, segment);
+            var found = current == null
+                    ? nodeRepository.findByLibraryIdAndParentIdIsNullAndName(libraryId, segment)
+                    : nodeRepository.findByLibraryIdAndParentIdAndName(libraryId, current.getId(), segment);
+            if (found.isEmpty()) {
+                return null;
+            }
+            current = found.get();
         }
         return current;
     }
