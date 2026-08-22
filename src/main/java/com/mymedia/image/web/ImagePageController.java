@@ -3,6 +3,8 @@ package com.mymedia.image.web;
 import com.mymedia.image.ImagePageService;
 import com.mymedia.shared.NotFoundException;
 import com.mymedia.user.UserQueryService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +27,8 @@ class ImagePageController {
 
     /** 页的字节内容只会随底层文件变化而变，而那会改掉 ETag，所以可以放心缓存一天。 */
     private static final String CACHE_CONTROL = "private, max-age=86400";
+
+    private static final Logger log = LoggerFactory.getLogger(ImagePageController.class);
 
     private final ImagePageService pageService;
     private final UserQueryService userQueryService;
@@ -76,7 +80,17 @@ class ImagePageController {
      */
     private StreamingResponseBody writer(ImagePageService.PageTarget target) {
         return (OutputStream out) -> {
-            try (InputStream in = pageService.open(target)) {
+            InputStream in;
+            try {
+                in = pageService.open(target);
+            } catch (IOException e) {
+                // 打开失败（文件被删除、压缩包损坏）是服务端错误，必须留痕——
+                // 此时响应头已提交，改不回错误码，只能记录后静默结束。
+                log.warn("打开图片页失败: path={} entry={}",
+                        target.path(), target.archiveEntryName(), e);
+                return;
+            }
+            try (in) {
                 in.transferTo(out);
             } catch (IOException e) {
                 // 用户快速翻页会中断上一页的连接，这是正常行为不是错误。
