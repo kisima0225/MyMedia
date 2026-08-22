@@ -110,6 +110,7 @@ class ImageProgressServiceTest extends AbstractIntegrationTest {
         MediaLibrary library = scannedLibrary();
         Long nodeId = catalogService.findRoots(library.getId()).getFirst().getId();
         UserAccount user = newUser();
+        accessService.grant(user.getId(), library.getId());
 
         progressService.record(user.getId(), nodeId, 1);
 
@@ -126,6 +127,8 @@ class ImageProgressServiceTest extends AbstractIntegrationTest {
         Long nodeId = catalogService.findRoots(library.getId()).getFirst().getId();
         UserAccount alice = newUser();
         UserAccount bob = newUser();
+        accessService.grant(alice.getId(), library.getId());
+        accessService.grant(bob.getId(), library.getId());
 
         progressService.record(alice.getId(), nodeId, 1);
         progressService.record(bob.getId(), nodeId, 2);
@@ -145,6 +148,7 @@ class ImageProgressServiceTest extends AbstractIntegrationTest {
         MediaLibrary library = scannedLibrary();
         Long nodeId = catalogService.findRoots(library.getId()).getFirst().getId();
         UserAccount user = newUser();
+        accessService.grant(user.getId(), library.getId());
 
         progressService.record(user.getId(), nodeId, 0);
         progressService.record(user.getId(), nodeId, 1);
@@ -162,6 +166,7 @@ class ImageProgressServiceTest extends AbstractIntegrationTest {
         MediaLibrary library = scannedLibrary();
         Long nodeId = catalogService.findRoots(library.getId()).getFirst().getId();
         UserAccount user = newUser();
+        accessService.grant(user.getId(), library.getId());
 
         progressService.record(user.getId(), nodeId, 0);
         assertThat(progressService.continueReading(user.getId(), 20)).hasSize(1);
@@ -181,6 +186,7 @@ class ImageProgressServiceTest extends AbstractIntegrationTest {
         MediaLibrary library = scannedLibrary();
         var roots = catalogService.findRoots(library.getId());
         UserAccount user = newUser();
+        accessService.grant(user.getId(), library.getId());
 
         progressService.record(user.getId(), roots.get(0).getId(), 1);
         progressService.record(user.getId(), roots.get(1).getId(), 1);
@@ -204,6 +210,24 @@ class ImageProgressServiceTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"pageIndex\":-1}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void userWithoutLibraryAccessGetsNotFoundWhenRecordingProgress() throws Exception {
+        writeImage("图集5/001.jpg");
+        writeImage("图集5/002.jpg");
+        MediaLibrary library = scannedLibrary();
+        Long nodeId = catalogService.findRoots(library.getId()).getFirst().getId();
+
+        // 已认证但从未被授权 —— 404 而非 403，不泄露节点存在性
+        UserAccount stranger = registrationService.register(
+                "s" + UUID.randomUUID().toString().substring(0, 8), "pw", UserRole.USER);
+
+        mockMvc.perform(put("/api/image/progress/" + nodeId)
+                        .with(httpBasic(stranger.getUsername(), "pw"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pageIndex\":1}"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
