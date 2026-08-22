@@ -138,8 +138,16 @@ class ImageTreeRelocator {
         int topLevel = oldSegments.size() - (chain.size() - 1);
         boolean any = false;
         for (int i = 0; i < chain.size(); i++) {
-            String oldDir = joinSegments(oldSegments, topLevel + i);
-            String newDir = joinSegments(newSegments, topLevel + i);
+            // 新旧路径深度可以不同（目录被上移或下沉）。对齐必须<b>从底部的基候选</b>
+            // 倒着数：基候选对应整个 newDirectory，往上每退一层就少取一段。
+            // 直接用 topLevel + i 去切 newSegments 是错的 —— 上移时会越界。
+            int newCount = newSegments.size() - oldSegments.size() + topLevel + i;
+            if (newCount < 1) {
+                // 这一层在新路径里根本没有对应段（子树被上移、中间层被抹平），
+                // 该祖先不该跟着改名；留在原地，空了自会被重算回收。
+                continue;
+            }
+            String newDir = joinSegments(newSegments, newCount);
             if (relocateNode(libraryId, chain.get(i),
                     parentDirectoryOf(newDir), lastSegmentOf(newDir))) {
                 any = true;

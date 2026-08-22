@@ -238,4 +238,29 @@ class ImageTreeRelocatorTest extends AbstractIntegrationTest {
                 .extracting(ImageNode::getName)
                 .containsExactly("顶层改");
     }
+
+    @Test
+    void movingANestedDirectoryUpToTheRootKeepsItsNode() throws IOException {
+        MediaLibrary library = libraryAtRoot();
+        writeImage("作者A/系列B/001.jpg");
+        scan(library.getId());
+
+        ImageNode seriesBefore = browseService
+                .childNodes(library.getId(), rootNamed(library, "作者A").getId()).getFirst();
+        Long pageId = catalogService.pagesOf(seriesBefore.getId()).getFirst().getId();
+
+        // 上移到库根：新路径比旧路径浅一层
+        Files.move(root.resolve("作者A/系列B"), root.resolve("系列B"));
+        scan(library.getId());
+
+        ImageNode seriesAfter = catalogService.getNode(seriesBefore.getId());
+        assertThat(seriesAfter.getParentId()).isNull();
+        assertThat(seriesAfter.getName()).isEqualTo("系列B");
+        assertThat(catalogService.pagesOf(seriesAfter.getId()))
+                .extracting(ImageFile::getId).containsExactly(pageId);
+        // 被搬空的旧父目录由重算回收
+        assertThat(catalogService.findRoots(library.getId()))
+                .extracting(ImageNode::getName)
+                .containsExactly("系列B");
+    }
 }
