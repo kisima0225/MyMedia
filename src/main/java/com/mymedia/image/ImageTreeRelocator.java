@@ -91,14 +91,14 @@ class ImageTreeRelocator {
 
         for (DirectoryMove move : ordered) {
             List<Relocation> moved = groups.get(move);
-            if (!tryMoveWholeDirectory(libraryId, move, moved)) {
+            if (!tryMoveWholeDirectory(libraryId, move, batch)) {
                 reattachIndividually(libraryId, moved);
             }
         }
     }
 
     private boolean tryMoveWholeDirectory(Long libraryId, DirectoryMove move,
-                                          List<Relocation> moved) {
+                                          List<Relocation> batch) {
         if (move.oldDirectory().equals(move.newDirectory())) {
             return false;      // 同目录内改名，节点结构不变（压缩包除外，交给兜底路径）
         }
@@ -106,25 +106,21 @@ class ImageTreeRelocator {
         if (oldNode == null || oldNode.getSourceKind() != ImageSourceKind.DIRECTORY) {
             return false;
         }
-        // 旧目录下的文件全都在本组里 → 整个目录搬走了
-        if (fileRepository.countByNodeId(oldNode.getId()) != moved.size()) {
-            return false;
-        }
 
-        // 顶层目录整体改名时，组里的文件可能全在深层子目录下：底层目录的
-        // 「整组搬走」只是表象，真正移动的是最顶层的祖先。逐层上溯——
-        // 只要祖先的整棵子树都搬走了（子树页数 == 本组移动数），就继续上溯，
-        // 从最顶层候选开始尝试搬迁；目标位置被真实内容占据时退到下一层。
+        // 从基候选开始逐层上溯：只要祖先的整棵子树都搬走了（子树内文件数 ==
+        // 整批中旧路径前缀匹配的移动数），就继续上溯。判定通过才入链——
+        // 判定失败的祖先绝不成为候选（部分搬迁时不能改名它）。
+        // 整批而非本组：兄弟子树同时搬去同一新父时，共享祖先也要能整棵搬走。
         List<String> oldSegments = segmentsOf(move.oldDirectory());
         List<String> newSegments = segmentsOf(move.newDirectory());
         List<ImageNode> chain = new ArrayList<>();
         ImageNode current = oldNode;
         int level = oldSegments.size();
         while (current != null) {
-            chain.add(current);
-            if (!wholeSubtreeMoved(current, oldSegments, level, moved)) {
+            if (!wholeSubtreeMoved(libraryId, current, oldSegments, level, batch)) {
                 break;
             }
+            chain.add(current);
             level--;
             if (level == 0) {
                 break;
@@ -132,33 +128,47 @@ class ImageTreeRelocator {
             current = nodeRepository.findById(current.getParentId()).orElse(null);
         }
         Collections.reverse(chain);
+        if (chain.isEmpty()) {
+            return false;
+        }
 
-        // chain 从最顶层祖先开始：第 i 个候选对应旧目录的前 (topLevel + i) 段
+        // chain 从最顶层祖先开始：第 i 个候选对应旧目录的前 (topLevel + i) 段。
+        // 不提前返回：每个候选都要落实自己那段的改名（父子同时改名的多段场景），
+        // 任一成功即视为整组已处理；全部失败回落逐文件重挂。
         int topLevel = oldSegments.size() - (chain.size() - 1);
+        boolean any = false;
         for (int i = 0; i < chain.size(); i++) {
             String oldDir = joinSegments(oldSegments, topLevel + i);
             String newDir = joinSegments(newSegments, topLevel + i);
             if (relocateNode(libraryId, chain.get(i),
                     parentDirectoryOf(newDir), lastSegmentOf(newDir))) {
-                return true;
+                any = true;
             }
         }
-        return false;
+        return any;
     }
 
-    /** 祖先目录的整棵子树（物化路径前缀）都随本组搬走了。 */
-    private boolean wholeSubtreeMoved(ImageNode node, List<String> oldSegments,
-                                      int level, List<Relocation> moved) {
-        long pagesInSubtree = jdbc.queryForObject("""
-                SELECT count(*) FROM image_file f
+    /**
+     * 祖先目录的整棵子树（物化路径前缀）都随整批移动搬走了吗。
+     *
+     * <p>两侧都以「文件」计：子树内 DISTINCT scanned_file_id（散图与压缩包页统一），
+     * 与整批 relocation 中旧路径落在该目录前缀下的数量对比。页数不能用来比——
+     * 一个压缩包是一个文件、N 页，逐页计数会把只含压缩包的目录判成「没搬完」。
+     */
+    private boolean wholeSubtreeMoved(Long libraryId, ImageNode node, List<String> oldSegments,
+                                      int level, List<Relocation> batch) {
+        long filesInSubtree = jdbc.queryForObject("""
+                SELECT count(DISTINCT f.scanned_file_id)
+                FROM image_file f
                 JOIN image_node n ON n.id = f.node_id
-                WHERE n.materialized_path LIKE ? || '%'
-                """, Long.class, node.getMaterializedPath());
+                WHERE n.library_id = ?
+                  AND n.materialized_path LIKE ? || '%'
+                """, Long.class, libraryId, node.getMaterializedPath());
         String prefix = joinSegments(oldSegments, level);
-        long relocated = moved.stream()
+        long relocated = batch.stream()
                 .filter(relocation -> relocation.oldPath().startsWith(prefix + "/"))
                 .count();
-        return pagesInSubtree == relocated;
+        return filesInSubtree == relocated;
     }
 
     private void reattachIndividually(Long libraryId, List<Relocation> moved) {
