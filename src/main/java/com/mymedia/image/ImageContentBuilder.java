@@ -107,6 +107,10 @@ class ImageContentBuilder implements LibraryContentBuilder {
     private void registerArchive(ScannedFileDiscovered event) {
         ImageNode node = indexer.archiveNodeFor(
                 event.libraryId(), event.relativePath(), event.scannedFileId());
+        if (node == null) {
+            log.warn("压缩包与同名目录并存，跳过建索引（目录页已可读）: {}", event.relativePath());
+            return;
+        }
 
         // dedup_key 保证同一个压缩包不会被重复排入索引任务
         jobQueue.enqueue(ArchiveIndexJobHandler.JOB_TYPE,

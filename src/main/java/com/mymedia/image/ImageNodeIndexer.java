@@ -44,6 +44,8 @@ class ImageNodeIndexer {
      * 返回压缩包自身的叶子节点。
      *
      * <p>节点名去掉扩展名：{@code vol01.cbz} 显示为 {@code vol01}。
+     * 若同目录下已存在同名 DIRECTORY 节点（如 {@code vol01/} 目录与 {@code vol01.cbz}
+     * 并存——解压后未删除原压缩包），返回 {@code null}：目录已含解压后的页，压缩包是冗余副本。
      */
     @Transactional
     ImageNode archiveNodeFor(Long libraryId, String relativePath, Long archiveScannedFileId) {
@@ -62,9 +64,14 @@ class ImageNodeIndexer {
                 ? nodeRepository.findByLibraryIdAndParentIdIsNullAndName(libraryId, nodeName)
                 : nodeRepository.findByLibraryIdAndParentIdAndName(libraryId, parentId, nodeName);
         if (sameName.isPresent()) {
-            // 同目录下已有同名节点（例如同时存在 vol01/ 目录与 vol01.cbz），
-            // 沿用既有节点，避免撞上兄弟唯一约束。
-            return sameName.get();
+            if (sameName.get().getSourceKind() == ImageSourceKind.ARCHIVE) {
+                // 同名 ARCHIVE 节点：沿用，避免撞上兄弟唯一约束
+                return sameName.get();
+            }
+            // 同名 DIRECTORY 节点（如 vol01/ 目录与 vol01.cbz 并存）：目录已含解压后的页，
+            // 压缩包是冗余副本。返回 null，调用方跳过建索引并记 WARN——
+            // 若照常排索引任务，handler 按 scannedFileId 找不到节点会永久 FAILED。
+            return null;
         }
 
         String parentPath = parent == null ? MaterializedPath.rootPath() : parent.getMaterializedPath();

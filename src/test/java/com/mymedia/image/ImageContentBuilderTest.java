@@ -285,4 +285,26 @@ class ImageContentBuilderTest extends AbstractIntegrationTest {
                 .extracting(ImageFile::getId)
                 .containsExactly(pageId);
     }
+
+    @Test
+    void archiveCoexistingWithSameNameDirectoryIsSkippedGracefully() throws IOException {
+        MediaLibrary library = libraryAtRoot();
+        writeArchive("漫画/vol01.cbz", "001.jpg", "002.jpg");
+        writeImage("漫画/vol01/001.jpg");
+
+        scan(library.getId());
+
+        // 同名目录已含解压后的页：压缩包是冗余副本，不应排索引任务
+        // （否则 handler 按 scannedFileId 找不到节点，任务永久 FAILED、书静默不可读）。
+        ImageNode comics = catalogService.findRoots(library.getId()).getFirst();
+        ImageNode volume = browseService.childNodes(library.getId(), comics.getId()).getFirst();
+        assertThat(volume.getName()).isEqualTo("vol01");
+        assertThat(volume.getSourceKind()).isEqualTo(ImageSourceKind.DIRECTORY);
+        assertThat(catalogService.pagesOf(volume.getId())).hasSize(1);
+
+        Integer failed = jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE type = 'ARCHIVE_INDEX' AND status = 'FAILED'",
+                Integer.class);
+        assertThat(failed).isZero();
+    }
 }
