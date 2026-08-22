@@ -39,3 +39,9 @@ mymedia:
     lease-duration: PT10M    # 租约时长，超时视为 worker 已死
   scan:
     max-depth: 32            # 遍历最大深度，防御异常深的目录结构
+  image:
+    # 压缩包条目名的「回退」编码，不是强制编码。
+    # ZIP 通用位标记第 11 位为 1 的条目一律按 UTF-8 解，本设置根本不参与；
+    # 只有没打这个标记的归档（Windows 中文压缩工具的典型产物）才用它。
+    # 因此设成 GBK 不会破坏 UTF-8 归档 —— 这一点已实测验证。
+    archive-charset: GBK
