@@ -150,6 +150,15 @@ class ImageContentBuilderTest extends AbstractIntegrationTest {
         Integer queued = jdbc.queryForObject(
                 "SELECT count(*) FROM job WHERE type = 'ARCHIVE_INDEX'", Integer.class);
         assertThat(queued).isEqualTo(before + 1);
+
+        // 断言完成后排空队列。上面只轮询一次把 ARCHIVE_INDEX 留在 PENDING 上，
+        // 但那只是为了证明任务确实被排出；若不带走它，本用例的 @TempDir 一删，
+        // 下一个测试抢到这条孤儿任务就会处理失败并进入退避重试，
+        // pendingOrRunningJobs 永不归零，后续用例集体超时。
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(pendingOrRunningJobs()).isZero();
+        });
     }
 
     @Test
