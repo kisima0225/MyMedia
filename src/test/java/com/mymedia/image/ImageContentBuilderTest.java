@@ -227,6 +227,11 @@ class ImageContentBuilderTest extends AbstractIntegrationTest {
         scan(library.getId());
 
         // 重打同一个包，多一页。size 变了 → 物理层判定为 changed。
+        // 任务表跨用例共享，计数必须取相对增量，不能用绝对值。
+        // 注意 before 在首轮扫描之后取值，首轮的登记任务已经算在里面，
+        // 这里只断言「变化之后多出一个重排任务」。
+        Integer before = jdbc.queryForObject(
+                "SELECT count(*) FROM job WHERE type = 'ARCHIVE_INDEX'", Integer.class);
         writeArchive("漫画/vol01.cbz", "001.jpg", "002.jpg", "003.jpg");
         scan(library.getId());
 
@@ -240,7 +245,7 @@ class ImageContentBuilderTest extends AbstractIntegrationTest {
         // 上一轮已经 SUCCEEDED，所以第二个任务能真正排出来。
         Integer jobs = jdbc.queryForObject(
                 "SELECT count(*) FROM job WHERE type = 'ARCHIVE_INDEX'", Integer.class);
-        assertThat(jobs).isEqualTo(2);
+        assertThat(jobs).isEqualTo(before + 1);
     }
 
     @Test
