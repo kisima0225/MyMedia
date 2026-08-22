@@ -1,6 +1,7 @@
 package com.mymedia.image.web;
 
 import com.mymedia.image.ImageBrowseService;
+import com.mymedia.image.ImageNode;
 import com.mymedia.library.LibraryAccessService;
 import com.mymedia.shared.NotFoundException;
 import com.mymedia.user.UserQueryService;
@@ -40,10 +41,17 @@ class ImageBrowseController {
             throw new NotFoundException("找不到媒体库 id=" + libraryId);
         }
 
-        List<ImageNodeDto.NodeSummary> breadcrumb = nodeId == null
-                ? List.of()
-                : browseService.breadcrumb(nodeId).stream()
-                        .map(ImageNodeDto.NodeSummary::from).toList();
+        List<ImageNodeDto.NodeSummary> breadcrumb = List.of();
+        if (nodeId != null) {
+            ImageNode node = browseService.getNode(nodeId);
+            if (!accessService.canAccess(userId, node.getLibraryId())
+                    || !node.getLibraryId().equals(libraryId)) {
+                // 404 而非 403：不泄露资源存在性
+                throw new NotFoundException("找不到图片节点 id=" + nodeId);
+            }
+            breadcrumb = browseService.breadcrumb(nodeId).stream()
+                    .map(ImageNodeDto.NodeSummary::from).toList();
+        }
 
         return new ImageNodeDto.BrowseResponse(
                 breadcrumb,

@@ -219,6 +219,24 @@ class ImageBrowseServiceTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void strangerCannotBrowseNodesOfAnInaccessibleLibrary() throws Exception {
+        writeImage("可见/001.jpg");
+        MediaLibrary visible = setUpLibrary();
+
+        writeImage("hidden/秘密/001.jpg");
+        MediaLibrary hidden = libraryService.create(
+                "隐藏" + UUID.randomUUID(), LibraryDomain.IMAGE, root.resolve("hidden").toString());
+        scan(hidden.getId());
+        ImageNode hiddenRoot = catalogService.findRoots(hidden.getId()).getFirst();
+
+        mockMvc.perform(get("/api/image/browse")
+                        .param("libraryId", String.valueOf(visible.getId()))
+                        .param("nodeId", String.valueOf(hiddenRoot.getId()))
+                        .with(httpBasic(username, "pw")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void anonymousIsRejected() throws Exception {
         writeImage("图集/001.jpg");
         MediaLibrary library = setUpLibrary();
