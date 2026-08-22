@@ -22,6 +22,12 @@ import java.util.List;
  * <p>为什么要建索引：不建的话每次翻页都得重新打开压缩包、重新读一遍中央目录区。
  * 一本 500 页的漫画从头读到尾就是 500 次目录区扫描。索引一次写进 {@code image_file}，
  * 之后翻页只按 id 定位条目。
+ *
+ * <p>为什么索引完成后要重算计数：ARCHIVE_INDEX 排在 LibraryScanCompleted 之后执行，
+ * 扫描收尾的重算（{@link ImageLibraryRecalculator#recalculate}）跑在前面，等本任务把页
+ * 填进 {@code image_file} 时，节点计数已经算完了。不在这里刷新一次，新索引的压缩包
+ * 会一直显示 0 页、readable=false，直到下一次扫描。复用批量重算（每条库几条 SQL），
+ * 与「批量重算，不做实时递归统计」的设计一致。
  */
 @Component
 class ArchiveIndexJobHandler implements JobHandler {
@@ -36,19 +42,22 @@ class ArchiveIndexJobHandler implements JobHandler {
     private final ImageArchiveReader archiveReader;
     private final ImageNodeRepository nodeRepository;
     private final ImageFileRepository fileRepository;
+    private final ImageLibraryRecalculator libraryRecalculator;
 
     ArchiveIndexJobHandler(ObjectMapper objectMapper,
                            ScannedFileQueryService scannedFiles,
                            LibraryService libraryService,
                            ImageArchiveReader archiveReader,
                            ImageNodeRepository nodeRepository,
-                           ImageFileRepository fileRepository) {
+                           ImageFileRepository fileRepository,
+                           ImageLibraryRecalculator libraryRecalculator) {
         this.objectMapper = objectMapper;
         this.scannedFiles = scannedFiles;
         this.libraryService = libraryService;
         this.archiveReader = archiveReader;
         this.nodeRepository = nodeRepository;
         this.fileRepository = fileRepository;
+        this.libraryRecalculator = libraryRecalculator;
     }
 
     @Override
@@ -87,6 +96,10 @@ class ArchiveIndexJobHandler implements JobHandler {
                     scannedFileId, node.getId(), pages.get(i).entryName(), i));
         }
         fileRepository.flush();
+
+        // 页是在扫描收尾的重算之后才写进来的，必须自己刷新节点计数，
+        // 否则新索引的压缩包 directPageCount=0、readable=false，要等下次扫描才可读。
+        libraryRecalculator.recalculate(scanned.getLibraryId());
 
         log.info("压缩包索引完成 node={} pages={} path={}",
                 node.getId(), pages.size(), scanned.getRelativePath());

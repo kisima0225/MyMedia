@@ -140,4 +140,21 @@ class ArchiveIndexJobHandlerTest extends AbstractIntegrationTest {
 
         assertThat(catalogService.pagesOf(archiveNodeOf(library).getId())).hasSize(2);
     }
+
+    @Test
+    void indexRefreshesNodeCountsSoTheBookIsImmediatelyReadable() throws IOException {
+        MediaLibrary library = libraryAtRoot();
+        writeArchive("漫画/vol05.cbz", "001.jpg", "002.jpg", "003.jpg");
+
+        scanAndIndex(library.getId());
+
+        // 索引任务在扫描收尾的重算之后才填页，必须自己刷新计数，
+        // 否则新索引的书 directPageCount=0、readable=false，要等下次扫描才可读。
+        ImageNode volume = archiveNodeOf(library);
+        assertThat(volume.getDirectPageCount()).isEqualTo(3);
+        assertThat(volume.getTotalPageCount()).isEqualTo(3);
+        assertThat(volume.isReadable()).isTrue();
+        assertThat(catalogService.findRoots(library.getId()).getFirst().getTotalPageCount())
+                .isEqualTo(3);
+    }
 }
