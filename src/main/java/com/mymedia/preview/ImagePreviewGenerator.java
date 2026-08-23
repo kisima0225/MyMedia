@@ -42,12 +42,11 @@ class ImagePreviewGenerator {
     }
 
     void generate(Long nodeId) throws IOException {
-        ImageNode node = catalog.getNode(nodeId);
-        if (node.getSourceKind() == ImageSourceKind.ARCHIVE
-                && !catalog.isArchiveIndexReady(nodeId)) {
+        if (!catalog.isArchiveIndexReady(nodeId)) {
             throw new IOException("归档页索引尚未完成，暂不生成封面 nodeId=" + nodeId);
         }
 
+        ImageNode node = catalog.getNode(nodeId);
         if (node.getDirectPageCount() == 0) {
             // FORCE_BOOK 的 pagesOf 会展开子树，但子节点的页不能成为本节点的封面来源
             log.debug("节点没有直属页，跳过封面生成 nodeId={}", nodeId);

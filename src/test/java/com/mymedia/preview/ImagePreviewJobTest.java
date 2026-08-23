@@ -10,9 +10,11 @@ import com.mymedia.library.LibraryDomain;
 import com.mymedia.library.LibraryService;
 import com.mymedia.library.MediaLibrary;
 import com.mymedia.scan.ScanTrigger;
+import org.aopalliance.intercept.MethodInterceptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
@@ -27,6 +29,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -237,6 +240,56 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
 
         assertThat(jdbc.queryForObject("SELECT cover_asset_id FROM image_node WHERE id = ?",
                 Long.class, node.getId())).isNotNull();
+    }
+
+    @Test
+    void usesFreshDirectPageStateAfterArchiveReadinessIsEstablished() throws IOException {
+        writeArchive("漫画/某作品 第01卷.cbz", "001.png");
+        scanLibraryWithoutArchiveIndex();
+
+        ImageNode staleNode = onlyArchiveNode();
+        Long archiveJobId = jdbc.queryForObject("""
+                SELECT id
+                  FROM job
+                 WHERE type = 'ARCHIVE_INDEX'
+                   AND payload->>'scannedFileId' = ?
+                 ORDER BY id DESC
+                 LIMIT 1
+                """, Long.class, String.valueOf(staleNode.getArchiveScannedFileId()));
+        runUntilSucceeded(archiveJobId);
+
+        ImageNode freshNode = catalogService.getNode(staleNode.getId());
+        assertThat(staleNode.getDirectPageCount()).isZero();
+        assertThat(freshNode.getDirectPageCount()).isEqualTo(1);
+
+        AtomicBoolean readinessEstablished = new AtomicBoolean();
+        ProxyFactory proxyFactory = new ProxyFactory(catalogService);
+        proxyFactory.setProxyTargetClass(true);
+        proxyFactory.addAdvice((MethodInterceptor) invocation -> {
+            if (invocation.getMethod().getName().equals("getNode")) {
+                return readinessEstablished.get() ? freshNode : staleNode;
+            }
+            if (invocation.getMethod().getName().equals("isArchiveIndexReady")) {
+                readinessEstablished.set(true);
+            }
+            return invocation.proceed();
+        });
+        ImageCatalogService instrumentedCatalog = (ImageCatalogService) proxyFactory.getProxy();
+
+        new ImagePreviewGenerator(instrumentedCatalog, assetService, previewProperties())
+                .generate(staleNode.getId());
+
+        ImageFile firstPage = catalogService.pagesOf(staleNode.getId()).getFirst();
+        assertThat(assetService.find(DerivedAssetKind.COVER, firstPage.getScannedFileId()))
+                .isPresent();
+        assertThat(jdbc.queryForObject("SELECT cover_asset_id FROM image_node WHERE id = ?",
+                Long.class, staleNode.getId())).isNotNull();
+    }
+
+    private PreviewProperties previewProperties() {
+        return new PreviewProperties(
+                "target/test-derived", "ffmpeg", "ffprobe", Duration.ofMinutes(2),
+                640, 320, 100, 10, 160, 10);
     }
 
     @Test
