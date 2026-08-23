@@ -14,6 +14,9 @@ import java.nio.file.Path;
  *
  * <p>用 JDK 自带的 {@code javax.imageio}，不引 Thumbnailator / imgscalr——
  * 本项目只需要"等比缩到指定宽度"这一个操作，为它加一个依赖说不出理由。
+ * 预览解码边界由当前 JDK 注册的 {@code ImageIO} reader 决定；扫描与归档索引可以
+ * 收录更多可原样提供给阅读器的扩展名，但这不表示它们都能生成预览。没有对应
+ * reader 时 {@link #read(InputStream)} 会抛出 {@link IOException}，不会产生伪预览。
  *
  * <p>Spring Boot 默认设置 {@code java.awt.headless=true}，
  * {@link BufferedImage} 与 {@link Graphics2D} 在无显示环境下工作正常。

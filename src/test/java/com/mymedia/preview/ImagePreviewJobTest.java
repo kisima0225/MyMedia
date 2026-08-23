@@ -4,6 +4,7 @@ import com.mymedia.AbstractIntegrationTest;
 import com.mymedia.image.ImageCatalogService;
 import com.mymedia.image.ImageFile;
 import com.mymedia.image.ImageNode;
+import com.mymedia.image.ImageReadingMode;
 import com.mymedia.jobs.JobPoller;
 import com.mymedia.library.LibraryDomain;
 import com.mymedia.library.LibraryService;
@@ -112,6 +113,13 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
         indexJobIds.forEach(this::runUntilSucceeded);
     }
 
+    private void scanLibraryWithoutArchiveIndex() {
+        library = libraryService.create(
+                "库" + UUID.randomUUID(), LibraryDomain.IMAGE, root.toString());
+        Long scanJobId = scanTrigger.requestScan(library.getId());
+        runUntilSucceeded(scanJobId);
+    }
+
     private ImageNode nodeNamed(String name) {
         Long id = jdbc.queryForObject(
                 "SELECT id FROM image_node WHERE library_id = ? AND name = ?",
@@ -192,6 +200,62 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void archivePreviewWaitsForIndexBeforeSucceeding() throws IOException {
+        writeArchive("漫画/某作品 第01卷.cbz", "001.png");
+        scanLibraryWithoutArchiveIndex();
+
+        ImageNode node = onlyArchiveNode();
+        Long archiveJobId = jdbc.queryForObject("""
+                SELECT id
+                  FROM job
+                 WHERE type = 'ARCHIVE_INDEX'
+                   AND payload->>'scannedFileId' = ?
+                 ORDER BY id DESC
+                 LIMIT 1
+                """, Long.class, String.valueOf(node.getArchiveScannedFileId()));
+        assertThat(jobStatus(archiveJobId)).isEqualTo("PENDING");
+
+        // 固定执行顺序：先让预览观察到“索引尚未完成”，再放行 ARCHIVE_INDEX。
+        jdbc.update("UPDATE job SET scheduled_at = now() + interval '1 hour' WHERE id = ?",
+                archiveJobId);
+        Long previewJobId = previewTrigger.requestImagePreview(node.getId());
+        jobPoller.pollOnce();
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            assertThat(jobStatus(previewJobId)).isEqualTo("PENDING");
+            assertThat(jdbc.queryForObject(
+                    "SELECT attempts FROM job WHERE id = ?", Integer.class, previewJobId))
+                    .isEqualTo(1);
+        });
+        assertThat(jdbc.queryForObject("SELECT cover_asset_id FROM image_node WHERE id = ?",
+                Long.class, node.getId())).isNull();
+
+        jdbc.update("UPDATE job SET scheduled_at = now() WHERE id = ?", archiveJobId);
+        runUntilSucceeded(archiveJobId);
+        jdbc.update("UPDATE job SET scheduled_at = now() WHERE id = ?", previewJobId);
+        runUntilSucceeded(previewJobId);
+
+        assertThat(jdbc.queryForObject("SELECT cover_asset_id FROM image_node WHERE id = ?",
+                Long.class, node.getId())).isNotNull();
+    }
+
+    @Test
+    void indexedEmptyArchiveSucceedsWithoutRetrying() throws IOException {
+        writeArchive("漫画/空卷.cbz");
+        scanLibrary();
+
+        ImageNode node = onlyArchiveNode();
+        Long previewJobId = previewTrigger.requestImagePreview(node.getId());
+        runUntilSucceeded(previewJobId);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT attempts FROM job WHERE id = ?", Integer.class, previewJobId))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT cover_asset_id FROM image_node WHERE id = ?",
+                Long.class, node.getId())).isNull();
+    }
+
+    @Test
     void alsoWritesAThumbnail() throws IOException {
         writeLooseImage("图集/a.png", 1000, 1000);
         scanLibrary();
@@ -216,6 +280,21 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
         runUntilSucceeded(jobId);
 
         // 纯中间目录没有直属页，任务应当安静成功
+        assertThat(jdbc.queryForObject("SELECT cover_asset_id FROM image_node WHERE id = ?",
+                Long.class, parent.getId())).isNull();
+    }
+
+    @Test
+    void forceBookWithoutOwnPagesStillGetsNoCover() throws IOException {
+        writeLooseImage("顶层/子目录/a.png", 500, 500);
+        scanLibrary();
+
+        ImageNode parent = nodeNamed("顶层");
+        catalogService.setReadingMode(parent.getId(), ImageReadingMode.FORCE_BOOK);
+        Long jobId = previewTrigger.requestImagePreview(parent.getId());
+        runUntilSucceeded(jobId);
+
+        // FORCE_BOOK 只改变阅读页集合，不改变“没有直属页就不生成节点封面”的规则。
         assertThat(jdbc.queryForObject("SELECT cover_asset_id FROM image_node WHERE id = ?",
                 Long.class, parent.getId())).isNull();
     }

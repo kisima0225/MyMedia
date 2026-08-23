@@ -2,6 +2,8 @@ package com.mymedia.preview;
 
 import com.mymedia.image.ImageCatalogService;
 import com.mymedia.image.ImageFile;
+import com.mymedia.image.ImageNode;
+import com.mymedia.image.ImageSourceKind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -40,10 +42,22 @@ class ImagePreviewGenerator {
     }
 
     void generate(Long nodeId) throws IOException {
+        ImageNode node = catalog.getNode(nodeId);
+        if (node.getSourceKind() == ImageSourceKind.ARCHIVE
+                && !catalog.isArchiveIndexReady(nodeId)) {
+            throw new IOException("归档页索引尚未完成，暂不生成封面 nodeId=" + nodeId);
+        }
+
+        if (node.getDirectPageCount() == 0) {
+            // FORCE_BOOK 的 pagesOf 会展开子树，但子节点的页不能成为本节点的封面来源
+            log.debug("节点没有直属页，跳过封面生成 nodeId={}", nodeId);
+            return;
+        }
+
         List<ImageFile> pages = catalog.pagesOf(nodeId);
         if (pages.isEmpty()) {
-            // 纯中间目录没有直属页，它的封面由界面用子节点的封面代偿，这里不是错误
-            log.debug("节点没有直属页，跳过封面生成 nodeId={}", nodeId);
+            // 计数与页表可能短暂不同步，仍按无页处理
+            log.debug("节点没有可用页面，跳过封面生成 nodeId={}", nodeId);
             return;
         }
 

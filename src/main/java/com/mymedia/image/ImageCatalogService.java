@@ -95,6 +95,30 @@ public class ImageCatalogService {
                 : archiveReader.openEntry(path, file.getArchiveEntryName());
     }
 
+    /** 归档索引已经完成，包括“索引完成但没有图片页”的情况。 */
+    @Transactional(readOnly = true)
+    public boolean isArchiveIndexReady(Long nodeId) {
+        ImageNode node = getNode(nodeId);
+        if (node.getSourceKind() != ImageSourceKind.ARCHIVE) {
+            return true;
+        }
+        Long archiveScannedFileId = node.getArchiveScannedFileId();
+        if (archiveScannedFileId == null) {
+            return false;
+        }
+        String status = jdbc.queryForObject("""
+                SELECT COALESCE((
+                    SELECT status
+                      FROM job
+                     WHERE type = 'ARCHIVE_INDEX'
+                       AND payload->>'scannedFileId' = ?
+                     ORDER BY id DESC
+                     LIMIT 1
+                ), 'MISSING')
+                """, String.class, String.valueOf(archiveScannedFileId));
+        return "SUCCEEDED".equals(status);
+    }
+
     /**
      * 节点还没有封面时才写入，返回是否真的写了。
      *
