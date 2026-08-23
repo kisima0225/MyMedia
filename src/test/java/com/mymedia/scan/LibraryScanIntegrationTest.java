@@ -48,7 +48,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(LibraryScanIntegrationTest.EventRecorderConfig.class)
 @TestPropertySource(properties = {
         "mymedia.jobs.enabled=true",
-        "mymedia.jobs.poll-interval=PT1H"
+        "mymedia.jobs.poll-interval=PT1H",
+        "mymedia.preview.wiring-enabled=false"
 })
 class LibraryScanIntegrationTest extends AbstractIntegrationTest {
 

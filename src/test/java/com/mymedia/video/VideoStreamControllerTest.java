@@ -41,7 +41,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "mymedia.jobs.enabled=true",
-        "mymedia.jobs.poll-interval=PT1H"
+        "mymedia.jobs.poll-interval=PT1H",
+        "mymedia.preview.wiring-enabled=false"
 })
 class VideoStreamControllerTest extends AbstractIntegrationTest {
 

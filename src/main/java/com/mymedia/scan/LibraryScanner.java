@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -54,6 +55,7 @@ class LibraryScanner {
         this.maxDepth = maxDepth;
     }
 
+    @Transactional
     ScanOutcome scan(Long libraryId) {
         MediaLibrary library = libraryService.getById(libraryId);
         Path root = Path.of(library.getRootPath());
