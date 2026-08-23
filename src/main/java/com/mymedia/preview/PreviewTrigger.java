@@ -27,7 +27,7 @@ public class PreviewTrigger {
     }
 
     public Long requestSprite(Long videoFileId) {
-        return enqueue("SPRITE_GENERATE", PreviewTarget.VIDEO_FILE, videoFileId);
+        return enqueue(SpriteJobHandler.JOB_TYPE, PreviewTarget.VIDEO_FILE, videoFileId);
     }
 
     private Long enqueue(String jobType, PreviewTarget target, Long targetId) {
