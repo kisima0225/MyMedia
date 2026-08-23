@@ -7,5 +7,5 @@
  */
 @org.springframework.modulith.ApplicationModule(
         displayName = "Preview",
-        allowedDependencies = {"shared", "library", "jobs", "scan"})
+        allowedDependencies = {"shared", "library", "jobs", "scan", "video"})
 package com.mymedia.preview;
