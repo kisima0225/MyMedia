@@ -21,9 +21,12 @@ class PreviewJobHandler implements JobHandler {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final VideoPreviewGenerator videoGenerator;
+    private final ImagePreviewGenerator imageGenerator;
 
-    PreviewJobHandler(VideoPreviewGenerator videoGenerator) {
+    PreviewJobHandler(VideoPreviewGenerator videoGenerator,
+                      ImagePreviewGenerator imageGenerator) {
         this.videoGenerator = videoGenerator;
+        this.imageGenerator = imageGenerator;
     }
 
     @Override
@@ -39,8 +42,7 @@ class PreviewJobHandler implements JobHandler {
 
         switch (target) {
             case VIDEO_FILE -> videoGenerator.generate(targetId);
-            case IMAGE_NODE -> throw new UnsupportedOperationException(
-                    "图片预览在 Task 4 实现");
+            case IMAGE_NODE -> imageGenerator.generate(targetId);
         }
     }
 }
