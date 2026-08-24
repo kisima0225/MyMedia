@@ -31,7 +31,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipEntry;
@@ -166,8 +165,6 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
         await().atMost(Duration.ofSeconds(10)).until(() -> {
             String status = jobStatus(jobId);
             if ("PENDING".equals(status)) {
-                // 自动接线可能在归档索引完成前先执行并进入退避；依赖已就绪后推进本测试目标。
-                jdbc.update("UPDATE job SET scheduled_at = now() WHERE id = ?", jobId);
                 jobPoller.pollOnce();
             }
             return "SUCCEEDED".equals(status) || "FAILED".equals(status);
@@ -177,14 +174,6 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
 
     private String jobStatus(Long jobId) {
         return jdbc.queryForObject("SELECT status FROM job WHERE id = ?", String.class, jobId);
-    }
-
-    private Optional<Long> previewJobFor(Long nodeId) {
-        List<Long> ids = jdbc.queryForList(
-                "SELECT id FROM job WHERE type = 'PREVIEW_GENERATE'"
-                        + " AND payload->>'targetId' = ? ORDER BY id DESC LIMIT 1",
-                Long.class, String.valueOf(nodeId));
-        return ids.stream().findFirst();
     }
 
     @Test
@@ -312,8 +301,6 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
         new ImagePreviewGenerator(instrumentedCatalog, assetService, previewProperties())
                 .generate(staleNode.getId());
 
-        previewJobFor(staleNode.getId()).ifPresent(this::runUntilSucceeded);
-
         ImageFile firstPage = catalogService.pagesOf(staleNode.getId()).getFirst();
         assertThat(assetService.find(DerivedAssetKind.COVER, firstPage.getScannedFileId()))
                 .isPresent();
@@ -328,7 +315,7 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void indexedEmptyArchiveSucceedsWithoutGeneratingACover() throws IOException {
+    void indexedEmptyArchiveSucceedsWithoutRetrying() throws IOException {
         writeArchive("漫画/空卷.cbz");
         scanLibrary();
 
@@ -336,6 +323,9 @@ class ImagePreviewJobTest extends AbstractIntegrationTest {
         Long previewJobId = previewTrigger.requestImagePreview(node.getId());
         runUntilSucceeded(previewJobId);
 
+        assertThat(jdbc.queryForObject(
+                "SELECT attempts FROM job WHERE id = ?", Integer.class, previewJobId))
+                .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT cover_asset_id FROM image_node WHERE id = ?",
                 Long.class, node.getId())).isNull();
     }

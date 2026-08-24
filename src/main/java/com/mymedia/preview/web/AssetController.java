@@ -61,6 +61,11 @@ class AssetController {
             throw new NotFoundException("找不到派生资源 id=" + id);
         }
 
+        Path path = assetService.pathOf(asset);
+        if (!Files.isReadable(path)) {
+            throw new NotFoundException("派生资源文件不存在 id=" + id);
+        }
+
         String etag = "\"asset-" + asset.getId() + "-"
                 + asset.getGeneratedAt().toEpochMilli() + "\"";
         if (etag.equals(ifNoneMatch)) {
@@ -68,11 +73,6 @@ class AssetController {
                     .header(HttpHeaders.ETAG, etag)
                     .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL)
                     .build();
-        }
-
-        Path path = assetService.pathOf(asset);
-        if (!Files.isReadable(path)) {
-            throw new NotFoundException("派生资源文件不存在 id=" + id);
         }
 
         return ResponseEntity.ok()

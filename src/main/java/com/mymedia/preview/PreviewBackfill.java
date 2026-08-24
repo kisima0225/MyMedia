@@ -4,11 +4,10 @@ import com.mymedia.image.ImageCatalogService;
 import com.mymedia.library.LibraryDomain;
 import com.mymedia.library.LibraryService;
 import com.mymedia.scan.event.LibraryScanCompleted;
-import com.mymedia.video.VideoCatalogService;
-import com.mymedia.video.VideoFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,16 +26,16 @@ class PreviewBackfill {
     private static final int BATCH_LIMIT = 500;
 
     private final LibraryService libraryService;
-    private final VideoCatalogService videoCatalog;
+    private final JdbcTemplate jdbc;
     private final ImageCatalogService imageCatalog;
     private final PreviewTrigger trigger;
 
     PreviewBackfill(LibraryService libraryService,
-                    VideoCatalogService videoCatalog,
+                    JdbcTemplate jdbc,
                     ImageCatalogService imageCatalog,
                     PreviewTrigger trigger) {
         this.libraryService = libraryService;
-        this.videoCatalog = videoCatalog;
+        this.jdbc = jdbc;
         this.imageCatalog = imageCatalog;
         this.trigger = trigger;
     }
@@ -56,15 +55,21 @@ class PreviewBackfill {
     }
 
     private int backfillVideo(Long libraryId) {
-        List<Long> itemIds = videoCatalog.itemsWithoutCover(libraryId, BATCH_LIMIT);
-        int queued = 0;
-        for (Long itemId : itemIds) {
-            for (VideoFile file : videoCatalog.filesOf(itemId)) {
-                trigger.requestVideoPreview(file.getId());
-                queued++;
-            }
-        }
-        return queued;
+        List<Long> fileIds = jdbc.queryForList("""
+                SELECT vf.id
+                  FROM video_file vf
+                  JOIN scanned_file sf ON sf.id = vf.scanned_file_id
+             LEFT JOIN derived_asset da
+                    ON da.source_scanned_file_id = vf.scanned_file_id
+                   AND da.kind = ?
+                 WHERE sf.library_id = ?
+                   AND sf.status = 'ACTIVE'
+                   AND da.id IS NULL
+                 ORDER BY vf.id
+                 LIMIT ?
+                """, Long.class, DerivedAssetKind.COVER.name(), libraryId, BATCH_LIMIT);
+        fileIds.forEach(trigger::requestVideoPreview);
+        return fileIds.size();
     }
 
     private int backfillImage(Long libraryId) {

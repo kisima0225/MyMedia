@@ -183,6 +183,18 @@ class AssetControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void missingDerivedFileIsNotModifiedEvenWhenTheEtagMatches() throws Exception {
+        String etag = assetRequest(allowedUser, coverAssetId)
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+        Files.delete(assetService.pathOf(assetService.getById(coverAssetId)));
+
+        mockMvc.perform(get("/api/assets/{id}", coverAssetId)
+                        .with(httpBasic(allowedUser, "pw"))
+                        .header(HttpHeaders.IF_NONE_MATCH, etag))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void unknownAssetIsNotFound() throws Exception {
         mockMvc.perform(get("/api/assets/{id}", 999_999_999L)
                         .with(httpBasic(allowedUser, "pw")))

@@ -46,6 +46,7 @@ mymedia:
     # 因此设成 GBK 不会破坏 UTF-8 归档 —— 这一点已实测验证。
     archive-charset: GBK
   preview:
+    wiring-enabled: true       # 事件接线默认启用；测试可显式关闭非预览场景
     root: ./data/derived        # 派生资源根目录，独立于媒体库路径，可整个删掉重建
     ffmpeg-path: ffmpeg         # 镜像里烘焙好，本机不装也能跑测试
     ffprobe-path: ffprobe
