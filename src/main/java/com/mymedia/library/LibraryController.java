@@ -49,6 +49,7 @@ class LibraryController {
         if (!accessService.canAccess(currentUserId(principal), id)) {
             throw new NotFoundException("找不到媒体库 id=" + id);
         }
+        libraryService.getById(id);   // 管理员可访问全部库，仍需显式确认库存在
         return libraryService.metadataProvidersOf(id);
     }
 

@@ -6,6 +6,7 @@ import com.mymedia.shared.NaturalSortKey;
 import com.mymedia.shared.ScrapeStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.sql.Array;
@@ -41,7 +42,7 @@ class VideoMetadataStore {
 
     Set<String> lockedFields(Long itemId) {
         return jdbc.queryForObject(
-                "SELECT locked_fields FROM video_item WHERE id = ?",
+                "SELECT locked_fields FROM video_item WHERE id = ? FOR UPDATE",
                 (rs, rowNum) -> toSet(rs.getArray(1)), itemId);
     }
 
@@ -82,7 +83,7 @@ class VideoMetadataStore {
                 fields.get(MetadataFields.RELEASE_DATE),
                 fields.get(MetadataFields.RATING),
                 toJson(extras),
-                rawResponse,
+                rawResponseAsJsonb(rawResponse),
                 toJson(sources),
                 source, sourceId, status.name(), itemId);
     }
@@ -150,6 +151,30 @@ class VideoMetadataStore {
         } catch (Exception e) {
             throw new IllegalStateException("无法序列化元数据字段", e);
         }
+    }
+
+    private static String toJson(String value) {
+        try {
+            return MAPPER.writeValueAsString(value);
+        } catch (Exception e) {
+            throw new IllegalStateException("无法序列化元数据原始响应", e);
+        }
+    }
+
+    /** 有效 JSON 保留其结构，XML/NFO 等任意文本则作为 JSON 字符串存储。 */
+    private static String rawResponseAsJsonb(String rawResponse) {
+        if (rawResponse == null) {
+            return null;
+        }
+        try {
+            JsonNode parsed = MAPPER.readTree(rawResponse);
+            if (parsed != null) {
+                return rawResponse;
+            }
+        } catch (Exception ignored) {
+            // 提供者原始响应不要求必须是 JSON，下面按字符串安全编码。
+        }
+        return toJson(rawResponse);
     }
 
     @SuppressWarnings("unchecked")

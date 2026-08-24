@@ -28,6 +28,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -38,6 +40,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -87,6 +93,9 @@ class MetadataWriteBackTest extends AbstractIntegrationTest {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     private MediaLibrary library;
 
@@ -181,6 +190,21 @@ class MetadataWriteBackTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void preservesXmlRawResponseInJsonb() throws IOException {
+        VideoItem item = scanOneMovie();
+        String rawResponse = "<movie><title>沙漠风暴</title><plot>原始 NFO</plot></movie>";
+
+        videoCatalog.applyMetadata(item.getId(), new MetadataPatch(
+                "LocalNfo", "nfo-42", Map.of(MetadataFields.TITLE, "沙漠风暴"),
+                Map.of(), rawResponse), ScrapeStatus.MATCHED);
+
+        String stored = jdbc.queryForObject(
+                "SELECT raw_metadata #>> '{}' FROM video_item WHERE id = ?",
+                String.class, item.getId());
+        assertThat(stored).isEqualTo(rawResponse);
+    }
+
+    @Test
     void userEditLocksTheFieldAndLaterScrapingCannotOverwriteIt() throws IOException {
         VideoItem item = scanOneMovie();
         videoCatalog.applyMetadata(item.getId(),
@@ -247,6 +271,48 @@ class MetadataWriteBackTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void concurrentUserEditCannotBeOverwrittenByScrape() throws Exception {
+        VideoItem item = scanOneMovie();
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        CountDownLatch userEditApplied = new CountDownLatch(1);
+        CountDownLatch releaseUserTransaction = new CountDownLatch(1);
+        CountDownLatch scrapeStarted = new CountDownLatch(1);
+        String applicationName = "task7-scrape-" + UUID.randomUUID().toString().replace("-", "");
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            var userTransaction = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                videoCatalog.applyUserEdit(item.getId(),
+                        Map.of(MetadataFields.TITLE, "并发用户标题"));
+                userEditApplied.countDown();
+                awaitLatch(releaseUserTransaction);
+            }));
+
+            assertThat(userEditApplied.await(5, TimeUnit.SECONDS)).isTrue();
+
+            var scrapeTransaction = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                jdbc.execute("SET LOCAL application_name = '" + applicationName + "'");
+                scrapeStarted.countDown();
+                videoCatalog.applyMetadata(item.getId(),
+                        patch("TMDB", Map.of(MetadataFields.TITLE, "并发机器标题")),
+                        ScrapeStatus.MATCHED);
+            }));
+
+            assertThat(scrapeStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThat(waitingTransactionCount(applicationName)).isGreaterThan(0L));
+
+            releaseUserTransaction.countDown();
+            userTransaction.get(5, TimeUnit.SECONDS);
+            scrapeTransaction.get(5, TimeUnit.SECONDS);
+        } finally {
+            releaseUserTransaction.countDown();
+        }
+
+        assertThat(jdbc.queryForObject("SELECT title FROM video_item WHERE id = ?",
+                String.class, item.getId())).isEqualTo("并发用户标题");
+    }
+
+    @Test
     void editEndpointAppliesAndLocks() throws Exception {
         VideoItem item = scanOneMovie();
         String username = registerUserWithAccess();
@@ -302,5 +368,36 @@ class MetadataWriteBackTest extends AbstractIntegrationTest {
 
         assertThat(libraryService.metadataProvidersOf(library.getId()))
                 .containsExactly("a,b", "c\"d", "{e}");
+    }
+
+    @Test
+    void adminGetsNotFoundForUnknownMetadataProviderLibrary() throws Exception {
+        String admin = "a" + UUID.randomUUID().toString().substring(0, 8);
+        registrationService.register(admin, "pw", UserRole.ADMIN);
+
+        mockMvc.perform(get("/api/libraries/{id}/metadata-providers", Long.MAX_VALUE)
+                        .with(httpBasic(admin, "pw")))
+                .andExpect(status().isNotFound());
+    }
+
+    private long waitingTransactionCount(String applicationName) {
+        Long count = jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM pg_locks locks
+                  JOIN pg_stat_activity activity ON activity.pid = locks.pid
+                 WHERE activity.application_name = ? AND NOT locks.granted
+                """, Long.class, applicationName);
+        return count == null ? 0L : count;
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("等待并发测试事务释放超时");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("并发测试事务被中断", e);
+        }
     }
 }

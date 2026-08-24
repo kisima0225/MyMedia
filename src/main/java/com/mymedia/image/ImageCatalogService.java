@@ -151,6 +151,7 @@ public class ImageCatalogService {
 
     @Transactional
     public void applyUserEdit(Long nodeId, Map<String, String> fields) {
+        metadataStore.lockedFields(nodeId);
         metadataStore.applyFields(nodeId, fields, Map.of(), "USER", null, null,
                 metadataStore.snapshot(nodeId).scrapeStatus());
         metadataStore.lock(nodeId, fields.keySet());

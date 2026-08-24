@@ -116,6 +116,7 @@ public class VideoCatalogService {
      */
     @Transactional
     public void applyUserEdit(Long itemId, Map<String, String> fields) {
+        metadataStore.lockedFields(itemId);
         metadataStore.applyFields(itemId, fields, Map.of(), "USER", null, null,
                 metadataStore.snapshot(itemId).scrapeStatus());
         metadataStore.lock(itemId, fields.keySet());
