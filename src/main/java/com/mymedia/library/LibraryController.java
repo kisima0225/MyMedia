@@ -11,6 +11,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -40,6 +41,24 @@ class LibraryController {
         return accessService.accessibleLibraries(userId).stream()
                 .map(LibraryDto.Response::from)
                 .toList();
+    }
+
+    @GetMapping("/{id}/metadata-providers")
+    List<String> metadataProviders(@AuthenticationPrincipal UserDetails principal,
+                                   @PathVariable Long id) {
+        if (!accessService.canAccess(currentUserId(principal), id)) {
+            throw new NotFoundException("找不到媒体库 id=" + id);
+        }
+        return libraryService.metadataProvidersOf(id);
+    }
+
+    @PutMapping("/{id}/metadata-providers")
+    @PreAuthorize("hasRole('ADMIN')")
+    List<String> setMetadataProviders(@PathVariable Long id,
+                                      @Valid @RequestBody LibraryDto.MetadataProvidersRequest request) {
+        libraryService.getById(id);   // 不存在就 404
+        libraryService.setMetadataProviders(id, request.providers());
+        return libraryService.metadataProvidersOf(id);
     }
 
     @GetMapping("/{id}")

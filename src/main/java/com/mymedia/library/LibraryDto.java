@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.util.List;
+
 final class LibraryDto {
 
     private LibraryDto() {
@@ -13,6 +15,9 @@ final class LibraryDto {
             @NotBlank @Size(max = 128) String name,
             @NotNull LibraryDomain domain,
             @NotBlank String rootPath) {
+    }
+
+    record MetadataProvidersRequest(@NotNull List<String> providers) {
     }
 
     record Response(

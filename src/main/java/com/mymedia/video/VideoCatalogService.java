@@ -1,12 +1,17 @@
 package com.mymedia.video;
 
+import com.mymedia.shared.FieldMergePolicy;
+import com.mymedia.shared.MetadataPatch;
+import com.mymedia.shared.MetadataSnapshot;
 import com.mymedia.shared.NotFoundException;
+import com.mymedia.shared.ScrapeStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * {@code video} 模块对外暴露的条目查询能力。
@@ -18,17 +23,20 @@ public class VideoCatalogService {
     private final VideoGroupRepository groupRepository;
     private final VideoFileRepository fileRepository;
     private final VideoProbeStore probeStore;
+    private final VideoMetadataStore metadataStore;
     private final JdbcTemplate jdbc;
 
     VideoCatalogService(VideoItemRepository itemRepository,
                         VideoGroupRepository groupRepository,
                         VideoFileRepository fileRepository,
                         VideoProbeStore probeStore,
+                        VideoMetadataStore metadataStore,
                         JdbcTemplate jdbc) {
         this.itemRepository = itemRepository;
         this.groupRepository = groupRepository;
         this.fileRepository = fileRepository;
         this.probeStore = probeStore;
+        this.metadataStore = metadataStore;
         this.jdbc = jdbc;
     }
 
@@ -81,6 +89,46 @@ public class VideoCatalogService {
         return jdbc.update(
                 "UPDATE video_item SET cover_asset_id = ? WHERE id = ? AND cover_asset_id IS NULL",
                 assetId, itemId) > 0;
+    }
+
+    /**
+     * 应用一次刮削结果。
+     *
+     * <p>{@code status} 由调用方（刮削链）决定而不是塞进 {@link MetadataPatch}：
+     * 同一份数据高置信度时是 {@code MATCHED}，来自文件名兜底时是 {@code NO_MATCH}，
+     * 这是链的判定不是提供者的数据。
+     */
+    @Transactional
+    public void applyMetadata(Long itemId, MetadataPatch patch, ScrapeStatus status) {
+        Map<String, String> fields = FieldMergePolicy.apply(
+                patch.fields(), metadataStore.lockedFields(itemId));
+        Map<String, String> extras = FieldMergePolicy.apply(
+                patch.extras(), metadataStore.lockedFields(itemId));
+        metadataStore.applyFields(itemId, fields, extras,
+                patch.source(), patch.sourceId(), patch.rawResponse(), status);
+    }
+
+    /**
+     * 用户手工编辑。
+     *
+     * <p><b>不经过 {@link FieldMergePolicy}</b>——用户就是权威，可以改自己锁过的字段。
+     * 写入的同时把这些字段加进 {@code locked_fields}，此后任何刮削都覆盖不了它们。
+     */
+    @Transactional
+    public void applyUserEdit(Long itemId, Map<String, String> fields) {
+        metadataStore.applyFields(itemId, fields, Map.of(), "USER", null, null,
+                metadataStore.snapshot(itemId).scrapeStatus());
+        metadataStore.lock(itemId, fields.keySet());
+    }
+
+    @Transactional
+    public void updateScrapeStatus(Long itemId, ScrapeStatus status) {
+        metadataStore.updateStatus(itemId, status);
+    }
+
+    @Transactional(readOnly = true)
+    public MetadataSnapshot metadataOf(Long itemId) {
+        return metadataStore.snapshot(itemId);
     }
 
     /** 扫描完成后的封面补齐用：列出该库中还没有封面的条目。 */

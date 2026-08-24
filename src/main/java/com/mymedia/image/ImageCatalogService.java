@@ -2,7 +2,11 @@ package com.mymedia.image;
 
 import com.mymedia.library.LibraryService;
 import com.mymedia.scan.ScannedFileQueryService;
+import com.mymedia.shared.FieldMergePolicy;
+import com.mymedia.shared.MetadataPatch;
+import com.mymedia.shared.MetadataSnapshot;
 import com.mymedia.shared.NotFoundException;
+import com.mymedia.shared.ScrapeStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,6 +16,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * {@code image} 模块对外暴露的节点与页查询能力。
@@ -24,6 +30,7 @@ public class ImageCatalogService {
     private final ImageArchiveReader archiveReader;
     private final ScannedFileQueryService scannedFiles;
     private final LibraryService libraryService;
+    private final ImageMetadataStore metadataStore;
     private final JdbcTemplate jdbc;
 
     ImageCatalogService(ImageNodeRepository nodeRepository,
@@ -31,12 +38,14 @@ public class ImageCatalogService {
                         ImageArchiveReader archiveReader,
                         ScannedFileQueryService scannedFiles,
                         LibraryService libraryService,
+                        ImageMetadataStore metadataStore,
                         JdbcTemplate jdbc) {
         this.nodeRepository = nodeRepository;
         this.fileRepository = fileRepository;
         this.archiveReader = archiveReader;
         this.scannedFiles = scannedFiles;
         this.libraryService = libraryService;
+        this.metadataStore = metadataStore;
         this.jdbc = jdbc;
     }
 
@@ -129,6 +138,32 @@ public class ImageCatalogService {
         return jdbc.update(
                 "UPDATE image_node SET cover_asset_id = ? WHERE id = ? AND cover_asset_id IS NULL",
                 assetId, nodeId) > 0;
+    }
+
+    @Transactional
+    public void applyMetadata(Long nodeId, MetadataPatch patch, ScrapeStatus status) {
+        Set<String> locked = metadataStore.lockedFields(nodeId);
+        metadataStore.applyFields(nodeId,
+                FieldMergePolicy.apply(patch.fields(), locked),
+                FieldMergePolicy.apply(patch.extras(), locked),
+                patch.source(), patch.sourceId(), patch.rawResponse(), status);
+    }
+
+    @Transactional
+    public void applyUserEdit(Long nodeId, Map<String, String> fields) {
+        metadataStore.applyFields(nodeId, fields, Map.of(), "USER", null, null,
+                metadataStore.snapshot(nodeId).scrapeStatus());
+        metadataStore.lock(nodeId, fields.keySet());
+    }
+
+    @Transactional
+    public void updateScrapeStatus(Long nodeId, ScrapeStatus status) {
+        metadataStore.updateStatus(nodeId, status);
+    }
+
+    @Transactional(readOnly = true)
+    public MetadataSnapshot metadataOf(Long nodeId) {
+        return metadataStore.snapshot(nodeId);
     }
 
     /** 扫描完成后的封面补齐用：列出该库中有直属页却还没有封面的节点。 */
