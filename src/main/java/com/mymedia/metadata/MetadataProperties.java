@@ -1,6 +1,7 @@
 package com.mymedia.metadata;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 import java.time.Duration;
 
@@ -46,6 +47,7 @@ record MetadataProperties(
         }
     }
 
+    @ConstructorBinding
     MetadataProperties {
         userAgent = userAgent == null || userAgent.isBlank()
                 ? "MyMedia/0.1 (self-hosted media library)" : userAgent;
