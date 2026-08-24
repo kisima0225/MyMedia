@@ -54,6 +54,15 @@ class PreviewBackfill {
         }
     }
 
+    /**
+     * 视频域按<b>文件</b>补齐，不是按条目：一个已经有封面的剧集条目里新增的分集
+     * 同样需要自己的封面与雪碧图，按条目筛会把它们全漏掉。
+     *
+     * <p>这条 SQL 留在 {@code preview} 而不是下推给 {@code video}，是因为它是
+     * {@code video_file} 与本模块自己的 {@code derived_asset} 的连接：
+     * 必须由允许依赖另一方的那一侧持有。{@code preview → video} 是允许的方向，
+     * 反过来不是。
+     */
     private int backfillVideo(Long libraryId) {
         List<Long> fileIds = jdbc.queryForList("""
                 SELECT vf.id

@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@code video} 模块对外暴露的条目查询能力。
@@ -101,10 +102,11 @@ public class VideoCatalogService {
      */
     @Transactional
     public void applyMetadata(Long itemId, MetadataPatch patch, ScrapeStatus status) {
-        Map<String, String> fields = FieldMergePolicy.apply(
-                patch.fields(), metadataStore.lockedFields(itemId));
-        Map<String, String> extras = FieldMergePolicy.apply(
-                patch.extras(), metadataStore.lockedFields(itemId));
+        // 一次 SELECT ... FOR UPDATE 取到锁定集合即可：同一个事务里再读一遍拿到的是同样的值，
+        // 只是多一次行锁往返。与图片域保持同一种写法。
+        Set<String> locked = metadataStore.lockedFields(itemId);
+        Map<String, String> fields = FieldMergePolicy.apply(patch.fields(), locked);
+        Map<String, String> extras = FieldMergePolicy.apply(patch.extras(), locked);
         metadataStore.applyFields(itemId, fields, extras,
                 patch.source(), patch.sourceId(), patch.rawResponse(), status);
     }
@@ -171,14 +173,5 @@ public class VideoCatalogService {
         return jdbc.queryForList(
                 "SELECT id FROM video_item WHERE library_id = ? AND scrape_status = 'PENDING'"
                         + " ORDER BY id LIMIT ?", Long.class, libraryId, limit);
-    }
-
-    /** 扫描完成后的封面补齐用：列出该库中还没有封面的条目。 */
-    @Transactional(readOnly = true)
-    public List<Long> itemsWithoutCover(Long libraryId, int limit) {
-        return jdbc.queryForList(
-                "SELECT id FROM video_item WHERE library_id = ? AND cover_asset_id IS NULL"
-                        + " ORDER BY id LIMIT ?",
-                Long.class, libraryId, limit);
     }
 }
