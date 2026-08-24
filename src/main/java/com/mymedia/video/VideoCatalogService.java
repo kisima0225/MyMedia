@@ -128,6 +128,15 @@ public class VideoCatalogService {
         metadataStore.updateStatus(itemId, status);
     }
 
+    /** 刮削器被清空时，收敛该库已有的待刮削条目。 */
+    @Transactional
+    public int markPendingScrapeNotApplicable(Long libraryId) {
+        return jdbc.update(
+                "UPDATE video_item SET scrape_status = ?"
+                        + " WHERE library_id = ? AND scrape_status = ?",
+                ScrapeStatus.NOT_APPLICABLE.name(), libraryId, ScrapeStatus.PENDING.name());
+    }
+
     @Transactional(readOnly = true)
     public MetadataSnapshot metadataOf(Long itemId) {
         return metadataStore.snapshot(itemId);

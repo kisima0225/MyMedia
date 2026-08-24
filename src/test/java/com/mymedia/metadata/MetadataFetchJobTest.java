@@ -1,6 +1,7 @@
 package com.mymedia.metadata;
 
 import com.mymedia.AbstractIntegrationTest;
+import com.mymedia.image.ImageCatalogService;
 import com.mymedia.jobs.JobPoller;
 import com.mymedia.library.LibraryAccessService;
 import com.mymedia.library.LibraryDomain;
@@ -18,10 +19,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -31,8 +36,11 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,6 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @AutoConfigureMockMvc
+@Import(MetadataFetchJobTest.DirectProviderFailureConfig.class)
 @TestPropertySource(properties = {
         "mymedia.jobs.enabled=true",
         "mymedia.jobs.poll-interval=PT1H",
@@ -77,6 +86,9 @@ class MetadataFetchJobTest extends AbstractIntegrationTest {
     VideoCatalogService videoCatalog;
 
     @Autowired
+    ImageCatalogService imageCatalog;
+
+    @Autowired
     ScrapeCandidateService candidateService;
 
     @Autowired
@@ -84,6 +96,7 @@ class MetadataFetchJobTest extends AbstractIntegrationTest {
 
     private final Set<Long> testJobIds = new HashSet<>();
     private final Set<Long> testTargetIds = new HashSet<>();
+    private final Set<Long> testImageTargetIds = new HashSet<>();
     private MediaLibrary library;
 
     /** 本测试失败时也不把自己留下的待执行任务带给后续测试。 */
@@ -103,6 +116,13 @@ class MetadataFetchJobTest extends AbstractIntegrationTest {
                     .append("?))");
             arguments.addAll(testTargetIds.stream().map(String::valueOf).toList());
         }
+        if (!testImageTargetIds.isEmpty()) {
+            predicate.append(" OR (type = 'METADATA_FETCH' AND payload->>'domain' = 'IMAGE'")
+                    .append(" AND payload->>'targetId' IN (")
+                    .append("?, ".repeat(Math.max(0, testImageTargetIds.size() - 1)))
+                    .append("?))");
+            arguments.addAll(testImageTargetIds.stream().map(String::valueOf).toList());
+        }
         if (!testJobIds.isEmpty()) {
             predicate.append(" OR id IN (")
                     .append("?, ".repeat(Math.max(0, testJobIds.size() - 1)))
@@ -116,12 +136,22 @@ class MetadataFetchJobTest extends AbstractIntegrationTest {
                 arguments.toArray());
 
         assertThat(jdbc.queryForObject(
-                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING')"
-                        + " AND payload->>'libraryId' = ?",
-                Integer.class, String.valueOf(library.getId()))).isZero();
+                "SELECT count(*) FROM job WHERE status IN ('PENDING', 'RUNNING') AND ("
+                        + predicate + ")",
+                Integer.class, arguments.toArray())).isZero();
     }
 
     private MediaLibrary scanWith(List<String> providers, String... relativePaths) throws IOException {
+        return scanWith(providers, true, relativePaths);
+    }
+
+    private MediaLibrary scanWithoutMetadata(List<String> providers, String... relativePaths)
+            throws IOException {
+        return scanWith(providers, false, relativePaths);
+    }
+
+    private MediaLibrary scanWith(List<String> providers, boolean processMetadata,
+                                  String... relativePaths) throws IOException {
         for (String relative : relativePaths) {
             Path file = root.resolve(relative);
             Files.createDirectories(file.getParent());
@@ -143,12 +173,62 @@ class MetadataFetchJobTest extends AbstractIntegrationTest {
         libraryService.setMetadataProviders(library.getId(), providers);
 
         Long scanJobId = scanTrigger.requestScan(library.getId());
-        runUntilSucceeded(scanJobId);
+        runScanUntilSucceeded(scanJobId);
         rememberTargets();
-        if (!providers.isEmpty()) {
+        if (processMetadata && !providers.isEmpty()) {
             testTargetIds.forEach(this::runMetadataFor);
         }
         return library;
+    }
+
+    private MediaLibrary scanImageArchive() throws IOException {
+        Path archive = root.resolve("漫画/作品.cbz");
+        Files.createDirectories(archive.getParent());
+        Files.writeString(root.resolve("漫画/作品.nfo"), """
+                <movie>
+                  <title>归档作品</title>
+                  <plot>归档主体路径回归。</plot>
+                </movie>
+                """, StandardCharsets.UTF_8);
+        try (var output = Files.newOutputStream(archive);
+             var zip = new ZipOutputStream(output)) {
+            zip.putNextEntry(new ZipEntry("001.png"));
+            zip.write(pngBytes());
+            zip.closeEntry();
+        }
+
+        library = libraryService.create(
+                "图库" + UUID.randomUUID(), LibraryDomain.IMAGE, root.toString());
+        libraryService.setMetadataProviders(library.getId(), List.of("LocalNfo"));
+
+        Long scanJobId = scanTrigger.requestScan(library.getId());
+        runScanUntilSucceeded(scanJobId);
+        testImageTargetIds.addAll(jdbc.queryForList(
+                "SELECT id FROM image_node WHERE library_id = ?", Long.class, library.getId()));
+        return library;
+    }
+
+    private Long archiveNodeId() {
+        Long nodeId = jdbc.queryForObject(
+                "SELECT id FROM image_node WHERE library_id = ? AND source_kind = 'ARCHIVE'",
+                Long.class, library.getId());
+        testImageTargetIds.add(nodeId);
+        return nodeId;
+    }
+
+    private Long archiveIndexJobId(Long nodeId) {
+        Long scannedFileId = jdbc.queryForObject(
+                "SELECT archive_scanned_file_id FROM image_node WHERE id = ?",
+                Long.class, nodeId);
+        Long jobId = jdbc.queryForObject("""
+                SELECT id FROM job
+                 WHERE type = 'ARCHIVE_INDEX'
+                   AND payload->>'scannedFileId' = ?
+                 ORDER BY id DESC
+                 LIMIT 1
+                """, Long.class, String.valueOf(scannedFileId));
+        testJobIds.add(jobId);
+        return jobId;
     }
 
     private void rememberTargets() {
@@ -164,13 +244,39 @@ class MetadataFetchJobTest extends AbstractIntegrationTest {
     }
 
     private List<Long> metadataJobIds(Long targetId) {
+        return metadataJobIds(LibraryDomain.VIDEO, targetId);
+    }
+
+    private List<Long> metadataJobIds(LibraryDomain domain, Long targetId) {
         List<Long> ids = jdbc.queryForList(
                 "SELECT id FROM job WHERE type = 'METADATA_FETCH'"
-                        + " AND payload->>'domain' = 'VIDEO' AND payload->>'targetId' = ?"
+                        + " AND payload->>'domain' = ? AND payload->>'targetId' = ?"
                         + " ORDER BY id",
-                Long.class, String.valueOf(targetId));
+                Long.class, domain.name(), String.valueOf(targetId));
         testJobIds.addAll(ids);
         return ids;
+    }
+
+    private Long awaitMetadataJob(LibraryDomain domain, Long targetId) {
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(metadataJobIds(domain, targetId)).isNotEmpty());
+        return metadataJobIds(domain, targetId).getLast();
+    }
+
+    /** 扫描只主动抢占一次，避免等待扫描完成时提前抢占其下游任务。 */
+    private void runScanUntilSucceeded(Long jobId) {
+        testJobIds.add(jobId);
+        jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(jobStatus(jobId)).as("scan job id=" + jobId).isEqualTo("SUCCEEDED"));
+    }
+
+    private static byte[] pngBytes() throws IOException {
+        var image = new java.awt.image.BufferedImage(8, 8,
+                java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var output = new ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "png", output);
+        return output.toByteArray();
     }
 
     private void runUntilSucceeded(Long jobId) {
@@ -272,6 +378,57 @@ class MetadataFetchJobTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT scrape_status FROM video_item WHERE id = ?",
                 String.class, item.getId())).isEqualTo("NOT_APPLICABLE");
         assertThat(metadataJobIds(item.getId())).isEmpty();
+
+        jdbc.update("UPDATE video_item SET scrape_status = 'PENDING' WHERE id = ?", item.getId());
+        runUntilSucceeded(scanTrigger.requestScan(library.getId()));
+
+        assertThat(jdbc.queryForObject("SELECT scrape_status FROM video_item WHERE id = ?",
+                String.class, item.getId())).isEqualTo("NOT_APPLICABLE");
+        assertThat(metadataJobIds(item.getId())).isEmpty();
+    }
+
+    @Test
+    void directProviderFailureMarksItemErrorBeforeSchedulerRetry() throws IOException {
+        scanWithoutMetadata(List.of("DirectProviderFailure"), "电影/网络故障.mp4");
+
+        VideoItem item = onlyItem();
+        Long metadataJobId = awaitMetadataJob(LibraryDomain.VIDEO, item.getId());
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            String status = jobStatus(metadataJobId);
+            if (!"SUCCEEDED".equals(status) && !"FAILED".equals(status)) {
+                jobPoller.pollOnce();
+            }
+            assertThat(jdbc.queryForObject("SELECT scrape_status FROM video_item WHERE id = ?",
+                    String.class, item.getId())).isEqualTo("ERROR");
+            assertThat(jdbc.queryForObject("SELECT attempts FROM job WHERE id = ?",
+                    Integer.class, metadataJobId)).isEqualTo(1);
+            assertThat(jobStatus(metadataJobId)).isEqualTo("PENDING");
+        });
+    }
+
+    @Test
+    void imageArchiveUsesItsScannedPathBeforeArchiveIndexRuns() throws IOException {
+        scanImageArchive();
+
+        Long nodeId = archiveNodeId();
+        Long archiveJobId = archiveIndexJobId(nodeId);
+        Long metadataJobId = awaitMetadataJob(LibraryDomain.IMAGE, nodeId);
+
+        // 强制先执行归档主体的元数据任务，验证它不依赖 image_file 已经建立。
+        jdbc.update("UPDATE job SET scheduled_at = now() + interval '1 hour' WHERE id = ?",
+                archiveJobId);
+        runUntilSucceeded(metadataJobId);
+
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT title, scrape_status, scrape_source FROM image_node WHERE id = ?", nodeId);
+        assertThat(row.get("title")).isEqualTo("归档作品");
+        assertThat(row.get("scrape_status")).isEqualTo("MATCHED");
+        assertThat(row.get("scrape_source")).isEqualTo("LocalNfo");
+
+        jdbc.update("UPDATE job SET scheduled_at = now() WHERE id = ?", archiveJobId);
+        runUntilSucceeded(archiveJobId);
+        assertThat(imageCatalog.pagesOf(nodeId)).hasSize(1);
     }
 
     @Test
@@ -378,5 +535,40 @@ class MetadataFetchJobTest extends AbstractIntegrationTest {
                         .param("domain", "VIDEO").param("targetId", String.valueOf(item.getId()))
                         .with(httpBasic(stranger, "pw")))
                 .andExpect(status().isNotFound());
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class DirectProviderFailureConfig {
+
+        @Bean
+        MetadataProvider directProviderFailure() {
+            return new MetadataProvider() {
+                @Override
+                public String name() {
+                    return "DirectProviderFailure";
+                }
+
+                @Override
+                public boolean supports(LibraryDomain domain) {
+                    return domain == LibraryDomain.VIDEO;
+                }
+
+                @Override
+                public boolean available() {
+                    throw new ProviderUnavailableException("模拟 HTTP 429");
+                }
+
+                @Override
+                public List<MetadataCandidate> search(ScrapeSubject subject) {
+                    return List.of();
+                }
+
+                @Override
+                public Optional<com.mymedia.shared.MetadataPatch> fetch(
+                        ScrapeSubject subject, MetadataCandidate candidate) {
+                    return Optional.empty();
+                }
+            };
+        }
     }
 }

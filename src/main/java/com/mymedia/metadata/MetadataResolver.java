@@ -48,6 +48,14 @@ class MetadataResolver {
         this.properties = properties;
     }
 
+    /**
+     * 归一化提供者链的可重试故障。
+     *
+     * <p>{@link MetadataProvider} 的 {@code search}/{@code fetch} 必须把网络、超时和限流
+     * 表达为 {@link ProviderUnavailableException}；这里会吸收它并继续尝试后续提供者，
+     * 在没有其他结果时返回 {@link ResolutionResult#error()}。提供者发现阶段逸出的同类
+     * 异常交给任务处理器做最后的状态归一化。
+     */
     ResolutionResult resolve(ScrapeSubject subject, List<String> configuredProviders) {
         List<MetadataCandidate> reviewable = new ArrayList<>();
         boolean sawFailure = false;

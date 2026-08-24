@@ -73,7 +73,15 @@ class MetadataFetchJobHandler implements JobHandler {
             return;
         }
 
-        ResolutionResult result = resolver.resolve(subject, providers);
+        ResolutionResult result;
+        try {
+            result = resolver.resolve(subject, providers);
+        } catch (ProviderUnavailableException e) {
+            // search/fetch 内的故障由 resolver 归一化；提供者发现阶段逸出的故障
+            // 也必须先落 ERROR，再交给 scheduler 的可重试失败流程。
+            updateStatus(domain, targetId, ScrapeStatus.ERROR);
+            throw e;
+        }
         switch (result.status()) {
             case MATCHED -> {
                 applyMetadata(domain, targetId, result.patch(), ScrapeStatus.MATCHED);

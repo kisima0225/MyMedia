@@ -162,6 +162,15 @@ public class ImageCatalogService {
         metadataStore.updateStatus(nodeId, status);
     }
 
+    /** 刮削器被清空时，收敛该库已有的待刮削节点。 */
+    @Transactional
+    public int markPendingScrapeNotApplicable(Long libraryId) {
+        return jdbc.update(
+                "UPDATE image_node SET scrape_status = ?"
+                        + " WHERE library_id = ? AND scrape_status = ?",
+                ScrapeStatus.NOT_APPLICABLE.name(), libraryId, ScrapeStatus.PENDING.name());
+    }
+
     @Transactional(readOnly = true)
     public MetadataSnapshot metadataOf(Long nodeId) {
         return metadataStore.snapshot(nodeId);

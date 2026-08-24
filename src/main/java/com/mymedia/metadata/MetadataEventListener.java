@@ -68,10 +68,18 @@ class MetadataEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     void onScanCompleted(LibraryScanCompleted event) {
+        LibraryDomain domain = libraryService.getById(event.libraryId()).getDomain();
         if (scrapingDisabled(event.libraryId())) {
+            int updated = switch (domain) {
+                case VIDEO -> videoCatalog.markPendingScrapeNotApplicable(event.libraryId());
+                case IMAGE -> imageCatalog.markPendingScrapeNotApplicable(event.libraryId());
+            };
+            if (updated > 0) {
+                log.info("刮削器已关闭，收敛待刮削条目 libraryId={} 数量={}",
+                        event.libraryId(), updated);
+            }
             return;
         }
-        LibraryDomain domain = libraryService.getById(event.libraryId()).getDomain();
         List<Long> pending = switch (domain) {
             case VIDEO -> videoCatalog.itemsPendingScrape(event.libraryId(), BATCH_LIMIT);
             case IMAGE -> imageCatalog.nodesPendingScrape(event.libraryId(), BATCH_LIMIT);
