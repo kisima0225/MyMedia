@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -41,8 +42,12 @@ class HttpProviderSupport {
     }
 
     RestClient client(String baseUrl) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(properties.requestTimeout());
+        requestFactory.setReadTimeout(properties.requestTimeout());
         return RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(requestFactory)
                 // 匿名爬对方是给自己招风控；Bangumi 的文档明确要求带标识性 UA
                 .defaultHeader(HttpHeaders.USER_AGENT, properties.userAgent())
                 .build();

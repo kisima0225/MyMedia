@@ -189,6 +189,20 @@ class BangumiProviderTest {
     }
 
     @Test
+    void stalledResponseBecomesProviderUnavailable() {
+        server.respondAfter("/v0/search/subjects", Duration.ofMillis(500), 200, SEARCH_BODY);
+        MetadataProperties properties = new MetadataProperties(
+                "MyMediaTest/0.1", Duration.ZERO, 0.8, 0.4,
+                new MetadataProperties.Bangumi(server.baseUrl()), null,
+                Duration.ofMillis(100));
+        BangumiProvider timeoutProvider = new BangumiProvider(
+                new HttpProviderSupport(properties), properties);
+
+        assertThatThrownBy(() -> timeoutProvider.search(SUBJECT))
+                .isInstanceOf(ProviderUnavailableException.class);
+    }
+
+    @Test
     void doesNotReuseSearchResultsForDifferentYears() {
         server.respond("/v0/search/subjects", 200, SEARCH_BODY);
         MetadataProperties properties = new MetadataProperties(

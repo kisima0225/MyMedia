@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -24,7 +25,7 @@ import java.util.Map;
  */
 class StubHttpServer implements AutoCloseable {
 
-    private record Canned(int status, String body) {
+    private record Canned(int status, String body, Duration delay) {
     }
 
     private final HttpServer server;
@@ -55,7 +56,11 @@ class StubHttpServer implements AutoCloseable {
 
     /** 注册一条应答。{@code path} 只比对路径部分，不含查询串。 */
     void respond(String path, int status, String body) {
-        responses.put(path, new Canned(status, body));
+        respondAfter(path, Duration.ZERO, status, body);
+    }
+
+    void respondAfter(String path, Duration delay, int status, String body) {
+        responses.put(path, new Canned(status, body, delay));
     }
 
     List<String> requestedUris() {
@@ -79,7 +84,13 @@ class StubHttpServer implements AutoCloseable {
         }
 
         Canned canned = responses.getOrDefault(exchange.getRequestURI().getPath(),
-                new Canned(404, "{\"detail\":\"not found\"}"));
+                new Canned(404, "{\"detail\":\"not found\"}", Duration.ZERO));
+        try {
+            Thread.sleep(canned.delay().toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
         byte[] body = canned.body().getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.sendResponseHeaders(canned.status(), body.length);

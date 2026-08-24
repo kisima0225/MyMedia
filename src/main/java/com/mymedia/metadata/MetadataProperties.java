@@ -9,6 +9,7 @@ import java.time.Duration;
  *
  * @param userAgent          外部请求必须带的标识性 UA——匿名爬对方是给自己招风控
  * @param minRequestInterval 客户端侧限流：同一个提供者两次请求之间的最小间隔
+ * @param requestTimeout     外部请求的连接与读取超时时间
  * @param autoApplyThreshold 相似度达到它就自动应用
  * @param reviewThreshold    相似度达到它就进待确认队列，低于它直接丢弃
  */
@@ -19,7 +20,17 @@ record MetadataProperties(
         double autoApplyThreshold,
         double reviewThreshold,
         Bangumi bangumi,
-        Tmdb tmdb) {
+        Tmdb tmdb,
+        Duration requestTimeout) {
+
+    private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(30);
+
+    MetadataProperties(String userAgent, Duration minRequestInterval,
+                       double autoApplyThreshold, double reviewThreshold,
+                       Bangumi bangumi, Tmdb tmdb) {
+        this(userAgent, minRequestInterval, autoApplyThreshold, reviewThreshold,
+                bangumi, tmdb, null);
+    }
 
     record Bangumi(String baseUrl) {
         Bangumi {
@@ -43,5 +54,7 @@ record MetadataProperties(
         reviewThreshold = reviewThreshold <= 0 ? 0.4 : reviewThreshold;
         bangumi = bangumi == null ? new Bangumi(null) : bangumi;
         tmdb = tmdb == null ? new Tmdb(null, null, null) : tmdb;
+        requestTimeout = requestTimeout == null || requestTimeout.isZero() || requestTimeout.isNegative()
+                ? DEFAULT_REQUEST_TIMEOUT : requestTimeout;
     }
 }
