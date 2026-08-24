@@ -54,7 +54,7 @@ class BangumiProvider implements MetadataProvider {
 
     @Override
     @Cacheable(cacheNames = ProviderCacheConfig.SEARCH_CACHE,
-               key = "'bangumi:' + #subject.domain() + ':' + #subject.title()")
+               key = "'bangumi:' + #subject.domain() + ':' + #subject.title() + ':' + #subject.year()")
     public List<MetadataCandidate> search(ScrapeSubject subject) {
         int type = subject.domain() == LibraryDomain.IMAGE ? TYPE_BOOK : TYPE_ANIME;
         String body = "{\"keyword\":" + quote(subject.title())

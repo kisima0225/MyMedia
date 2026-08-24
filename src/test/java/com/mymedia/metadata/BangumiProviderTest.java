@@ -6,6 +6,7 @@ import com.mymedia.shared.MetadataPatch;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.time.Duration;
 import java.util.List;
@@ -41,6 +42,7 @@ class BangumiProviderTest {
 
     private StubHttpServer server;
     private BangumiProvider provider;
+    private AnnotationConfigApplicationContext context;
 
     private static final ScrapeSubject SUBJECT = new ScrapeSubject(
             LibraryDomain.VIDEO, 1L, 1L, "进击的巨人", 2013, null);
@@ -56,6 +58,9 @@ class BangumiProviderTest {
 
     @AfterEach
     void stopServer() {
+        if (context != null) {
+            context.close();
+        }
         server.close();
     }
 
@@ -181,5 +186,31 @@ class BangumiProviderTest {
         assertThat(provider.supports(LibraryDomain.VIDEO)).isTrue();
         assertThat(provider.supports(LibraryDomain.IMAGE)).isTrue();
         assertThat(provider.available()).isTrue();
+    }
+
+    @Test
+    void doesNotReuseSearchResultsForDifferentYears() {
+        server.respond("/v0/search/subjects", 200, SEARCH_BODY);
+        MetadataProperties properties = new MetadataProperties(
+                "MyMediaTest/0.1", Duration.ZERO, 0.8, 0.4,
+                new MetadataProperties.Bangumi(server.baseUrl()), null);
+        MetadataProvider cachedProvider = cachedProvider(properties);
+
+        cachedProvider.search(SUBJECT);
+        cachedProvider.search(new ScrapeSubject(
+                LibraryDomain.VIDEO, 2L, 1L, "进击的巨人", 2014, null));
+
+        assertThat(server.requestedUris()).hasSize(2);
+    }
+
+    private MetadataProvider cachedProvider(MetadataProperties properties) {
+        context = new AnnotationConfigApplicationContext();
+        context.register(ProviderCacheConfig.class);
+        context.registerBean(MetadataProperties.class, () -> properties);
+        context.registerBean(HttpProviderSupport.class, () -> new HttpProviderSupport(properties));
+        context.registerBean(BangumiProvider.class, () -> new BangumiProvider(
+                context.getBean(HttpProviderSupport.class), properties));
+        context.refresh();
+        return context.getBean(MetadataProvider.class);
     }
 }
