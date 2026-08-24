@@ -7,6 +7,7 @@ import com.mymedia.library.MediaLibrary;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,6 +17,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@TestPropertySource(properties = "mymedia.preview.wiring-enabled=false")
 class RelocationDetectorTest extends AbstractIntegrationTest {
 
     @TempDir

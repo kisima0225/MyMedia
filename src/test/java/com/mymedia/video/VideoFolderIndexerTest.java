@@ -25,7 +25,8 @@ import static org.awaitility.Awaitility.await;
 
 @TestPropertySource(properties = {
         "mymedia.jobs.enabled=true",
-        "mymedia.jobs.poll-interval=PT1H"
+        "mymedia.jobs.poll-interval=PT1H",
+        "mymedia.preview.wiring-enabled=false"
 })
 class VideoFolderIndexerTest extends AbstractIntegrationTest {
 

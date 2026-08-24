@@ -36,7 +36,8 @@ import static org.awaitility.Awaitility.await;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "mymedia.jobs.enabled=true",
-        "mymedia.jobs.poll-interval=PT1H"
+        "mymedia.jobs.poll-interval=PT1H",
+        "mymedia.preview.wiring-enabled=false"
 })
 class ImageBrowseServiceTest extends AbstractIntegrationTest {
 

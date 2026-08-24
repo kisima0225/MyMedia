@@ -45,3 +45,26 @@ mymedia:
     # 只有没打这个标记的归档（Windows 中文压缩工具的典型产物）才用它。
     # 因此设成 GBK 不会破坏 UTF-8 归档 —— 这一点已实测验证。
     archive-charset: GBK
+  preview:
+    wiring-enabled: true       # 事件接线默认启用；测试可显式关闭非预览场景
+    root: ./data/derived        # 派生资源根目录，独立于媒体库路径，可整个删掉重建
+    ffmpeg-path: ffmpeg         # 镜像里烘焙好，本机不装也能跑测试
+    ffprobe-path: ffprobe
+    command-timeout: PT2M       # 单次外部进程调用的上限
+    cover-width: 640
+    thumbnail-width: 320
+    sprite-frames: 100          # 固定 100 帧，永远单张图
+    sprite-columns: 10          # 10 × 10
+    sprite-tile-width: 160
+    sprite-min-duration-seconds: 10   # 太短的视频不值得做雪碧图
+  metadata:
+    user-agent: "MyMedia/0.1 (https://github.com/kisima0225/MyMedia)"   # 匿名爬对方是给自己招风控
+    min-request-interval: PT1S      # 客户端侧限流
+    auto-apply-threshold: 0.8       # 相似度达到就自动应用
+    review-threshold: 0.4           # 达到就进待确认队列，低于此直接丢弃
+    bangumi:
+      base-url: https://api.bgm.tv  # 无需鉴权（已实测）
+    tmdb:
+      base-url: https://api.themoviedb.org/3
+      api-key: ""                   # 留空 → TmdbProvider 报告不可用，链跳过它，不算错误
+      language: zh-CN

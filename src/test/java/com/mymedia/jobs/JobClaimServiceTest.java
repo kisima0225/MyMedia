@@ -1,8 +1,10 @@
 package com.mymedia.jobs;
 
 import com.mymedia.AbstractIntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -25,9 +27,18 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
     @Autowired
     JobQueue jobQueue;
 
+    @Autowired
+    JdbcTemplate jdbc;
+
+    @BeforeEach
+    void clearJobs() {
+        jdbc.update("DELETE FROM job");
+    }
+
     @Test
     void claimedJobsBecomeRunningWithLease() {
         Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
+        makeDue(id);
 
         List<Job> claimed = claimService.claim("worker-1", 10, Duration.ofMinutes(5));
 
@@ -43,7 +54,9 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
     @Test
     void currentOwnerCanRenewAnUnexpiredLease() {
         Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
-        claimService.claim("worker-1", 10, Duration.ofSeconds(5));
+        makeDue(id);
+        assertThat(claimService.claim("worker-1", 10, Duration.ofSeconds(5)))
+                .extracting(Job::getId).contains(id);
         Instant originalExpiry = jobQueue.findById(id).getLeaseExpiresAt();
 
         assertThat(claimService.renewLease(id, "worker-1", Duration.ofMinutes(5))).isTrue();
@@ -57,6 +70,7 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
         for (int i = 0; i < jobCount; i++) {
             jobQueue.enqueue("PREVIEW_GENERATE", "{\"n\":" + i + "}", null);
         }
+        jdbc.update("UPDATE job SET scheduled_at = now() - interval '1 second'");
 
         int workers = 4;
         try (ExecutorService pool = Executors.newFixedThreadPool(workers)) {
@@ -89,9 +103,11 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
     @Test
     void expiredLeasesAreReclaimed() {
         Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
+        makeDue(id);
 
         // 租约设为负时长，使其立即过期，模拟 worker 崩溃
-        claimService.claim("dead-worker", 10, Duration.ofSeconds(-1));
+        assertThat(claimService.claim("dead-worker", 10, Duration.ofSeconds(-1)))
+                .extracting(Job::getId).contains(id);
         assertThat(jobQueue.findById(id).getStatus()).isEqualTo(JobStatus.RUNNING);
 
         int reclaimed = claimService.reclaimExpiredLeases();
@@ -105,6 +121,7 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
     @Test
     void staleWorkerCannotUpdateJobAfterLeaseIsReclaimedAndReassigned() {
         Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
+        makeDue(id);
 
         assertThat(claimService.claim("worker-a", 100, Duration.ofSeconds(-1)))
                 .extracting(Job::getId)
@@ -127,6 +144,7 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
     @Test
     void staleWorkerCannotRenewLeaseAfterItWasReassigned() {
         Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
+        makeDue(id);
 
         claimService.claim("worker-a", 100, Duration.ofSeconds(-1));
         claimService.reclaimExpiredLeases();
@@ -143,11 +161,16 @@ class JobClaimServiceTest extends AbstractIntegrationTest {
     void jobsScheduledInFutureAreNotClaimed() {
         // markFailed 会把 scheduled_at 推到将来，这类任务不应被立即重新抢占
         Long id = jobQueue.enqueue("LIBRARY_SCAN", "{}", "dedup-" + UUID.randomUUID());
+        makeDue(id);
         claimService.claim("worker-1", 10, Duration.ofMinutes(5));
         claimService.recordFailure(id, "worker-1", "网络超时");
 
         List<Job> claimed = claimService.claim("worker-2", 10, Duration.ofMinutes(5));
 
         assertThat(claimed).extracting(Job::getId).doesNotContain(id);
+    }
+
+    private void makeDue(Long id) {
+        jdbc.update("UPDATE job SET scheduled_at = now() - interval '1 second' WHERE id = ?", id);
     }
 }
