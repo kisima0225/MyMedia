@@ -9177,6 +9177,7 @@ NEEDS_REVIEW 时只写候选、一个字段都不动；确认时才去取详情�
 
 **Files:**
 - Test: `src/test/java/com/mymedia/preview/FfprobeSmokeTest.java`
+- Modify: `src/test/java/com/mymedia/FlywayMigrationTest.java`（增加 V10/V11 迁移存在性断言）
 - Create: `docs/adr/ADR-004-刮削链不做-SPI-倒置.md`
 - Create: `docs/adr/ADR-005-刮削是可选增强.md`
 - Create: `docs/walkthrough/05-预览与元数据.md`
@@ -9196,8 +9197,14 @@ NEEDS_REVIEW 时只写候选、一个字段都不动；确认时才去取详情�
 package com.mymedia.preview;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
@@ -9216,33 +9223,79 @@ class FfprobeSmokeTest {
 
     private final ProcessCommandRunner runner = new ProcessCommandRunner();
 
-    private boolean ffprobeAvailable() {
-        try {
-            return runner.run(List.of("ffprobe", "-version"), Duration.ofSeconds(10)).succeeded();
-        } catch (IOException | InterruptedException e) {
-            return false;
-        }
-    }
-
     @Test
-    void realFfprobeAcceptsOurCommandLine() throws Exception {
-        assumeTrue(ffprobeAvailable(), "本机没有 ffprobe，跳过真机验证（镜像里有）");
+    void realFfprobeAcceptsOurCommandLine(@TempDir Path tempDir) throws Exception {
+        try {
+            CommandResult version = runner.run(
+                    List.of("ffprobe", "-version"), Duration.ofSeconds(10));
+            assertThat(version.succeeded())
+                    .as("ffprobe -version 失败: %s", version.stderr())
+                    .isTrue();
+        } catch (IOException e) {
+            if (isMissingExecutable(e)) {
+                assumeTrue(false, "本机没有 ffprobe，跳过真机验证（镜像里有）");
+            }
+            throw e;
+        }
 
-        // 让 ffprobe 探测它自己的可执行文件：一定失败，但足以证明参数被接受了
+        Path fixture = tempDir.resolve("fixture.wav");
+        Files.write(fixture, wavFixture());
         CommandResult result = runner.run(
-                MediaCommands.probe("ffprobe", java.nio.file.Path.of("ffprobe")),
+                MediaCommands.probe("ffprobe", fixture),
                 Duration.ofSeconds(20));
 
-        // -v quiet 让它对不认识的输入闭嘴；关键是没有"Unrecognized option"
-        assertThat(result.stderr()).doesNotContain("Unrecognized option");
+        assertThat(result.succeeded())
+                .as("ffprobe 探测合法 WAV 失败: %s", result.stderr())
+                .isTrue();
+        FfprobeOutput output = FfprobeParser.parse(result.stdout());
+        assertThat(output.durationSeconds()).isEqualTo(1);
+        assertThat(output.audioCodec()).isNotBlank();
+    }
+
+    private static boolean isMissingExecutable(IOException failure) {
+        Throwable cause = failure.getCause();
+        if (!(cause instanceof IOException)) {
+            return false;
+        }
+        String message = cause.getMessage();
+        return message != null && message.contains("error=2");
+    }
+
+    /** 构造一秒的无声 PCM WAV，不依赖 ffmpeg 生成测试输入。 */
+    private static byte[] wavFixture() {
+        int sampleRate = 8_000;
+        int dataSize = sampleRate;
+        ByteBuffer wav = ByteBuffer.allocate(44 + dataSize).order(ByteOrder.LITTLE_ENDIAN);
+        putAscii(wav, "RIFF");
+        wav.putInt(36 + dataSize);
+        putAscii(wav, "WAVE");
+        putAscii(wav, "fmt ");
+        wav.putInt(16);
+        wav.putShort((short) 1);
+        wav.putShort((short) 1);
+        wav.putInt(sampleRate);
+        wav.putInt(sampleRate);
+        wav.putShort((short) 1);
+        wav.putShort((short) 8);
+        putAscii(wav, "data");
+        wav.putInt(dataSize);
+        return wav.array();
+    }
+
+    private static void putAscii(ByteBuffer buffer, String value) {
+        buffer.put(value.getBytes(StandardCharsets.US_ASCII));
     }
 }
 ```
 
 - [ ] **Step 2: 跑全量验证**
 
-```bash
-cd /d/MyMedia && mvn -B -ntp verify > verify.log 2>&1; echo "EXIT=$?"; grep -E "Tests run:|BUILD" verify.log | tail -20
+```powershell
+# 在当前计划的 worktree 根目录执行，例如 D:\MyMedia-5
+mvn -B -ntp verify *> verify.log
+$exitCode = $LASTEXITCODE
+Write-Output "EXIT=$exitCode"
+Select-String -Path "verify.log" -Pattern "Tests run:|BUILD" | Select-Object -Last 20
 ```
 
 Expected: `EXIT=0`，`BUILD SUCCESS`，`Failures: 0, Errors: 0`。
@@ -9251,8 +9304,9 @@ Expected: `EXIT=0`，`BUILD SUCCESS`，`Failures: 0, Errors: 0`。
 
 - [ ] **Step 3: 确认迁移在干净数据库上从头跑通**
 
-```bash
-cd /d/MyMedia && mvn -B -ntp test -Dtest=FlywayMigrationTest -DfailIfNoTests=false > t.log 2>&1; echo "EXIT=$?"; grep -E "Tests run" t.log
+```powershell
+# 不设置 failIfNoTests=false，避免测试类未被发现时假绿
+mvn -B -ntp test "-Dtest=FlywayMigrationTest" "-DfailIfNoTests=true"
 ```
 
 Expected: `EXIT=0`。V1→V11 在全新容器上依次执行成功。
@@ -9345,7 +9399,8 @@ Expected: `EXIT=0`。V1→V11 在全新容器上依次执行成功。
 1. **扫描完成的瞬间条目就可用**：标题来自文件名解析，封面来自视频抽帧 / 漫画首页，
    可播放可阅读。刮削失败不影响任何一项。
 2. **按库配置**：`libraries.metadata_providers` 为空数组的库，条目直接置
-   `NOT_APPLICABLE`，**连任务都不排**，界面零刮削噪音。
+   `NOT_APPLICABLE`，**连任务都不排**，界面零刮削噪音。已经排出的 `PENDING` 任务会在
+   下一次扫描补齐或任务执行时收敛，不把配置修改伪装成回溯式取消。
 3. **`NO_MATCH` 不是错误**：安静回落到文件名元数据，界面不显示为异常状态。
    只有网络故障与限流才置 `ERROR` 并重试。
 4. **低置信度不写入**：中等相似度的结果进 `scrape_candidate` 等用户确认，
@@ -9357,7 +9412,7 @@ Expected: `EXIT=0`。V1→V11 在全新容器上依次执行成功。
 - 把刮削从关键路径上摘下来之后，外部 API 的可用性、限流、key 缺失都不再是
   影响可用性的因素——`TmdbProvider` 缺 key 时直接报告不可用，链跳过它，
   别人克隆这个仓库也能跑。
-- 演示数据全部靠本地 `.nfo` 提供元数据，`docker compose up` 无需任何 API key。
+- 采用本地 `.nfo` 的演示内容时，`docker compose up` 无需任何 API key。
 
 ## 后果
 
@@ -9388,7 +9443,7 @@ Expected: `EXIT=0`。V1→V11 在全新容器上依次执行成功。
    在没装 ffmpeg 的机器上也能跑完整套。
 3. **`-ss` 的位置**：为什么放 `-i` 前，为什么这件事值得一个单元测试
    （两种写法都能出图，集成测试看不出差别）。
-4. **雪碧图为什么固定 100 帧 10×10**：一个决定省掉的全部复杂度；
+4. **雪碧图为什么默认 100 帧 10×10**：一个决定省掉的全部复杂度；实现仍允许通过预览配置覆盖；
    以及图块尺寸为什么要从生成结果读而不是重算。
 5. **优先级的两套机制**：链的顺序 + `locked_fields`，`field_sources` 只用于展示。
    配一个"用户改过标题后再刮一次"的实际例子。
@@ -9418,17 +9473,11 @@ Expected: `EXIT=0`。V1→V11 在全新容器上依次执行成功。
 
 - [ ] **Step 8: 最终提交**
 
-```bash
-cd /d/MyMedia
-rm -f verify.log t.log
-git add docs src/test/java/com/mymedia/preview/FfprobeSmokeTest.java
-git commit -m "docs: 完成预览与元数据阶段的 ADR 与讲解文档
-
-ADR-004 记录'为什么 scan 倒置而 metadata 不倒置'——
-同一个项目里两次相反的取舍各有各的理由。
-ADR-005 记录'刮削是可选增强'的四条落地规则。
-
-讲解文档里照实写明 TMDB 未经真机验证。"
+```powershell
+# 在当前计划的 worktree 根目录执行，不要切回主 worktree
+Remove-Item -Force "verify.log", "t.log" -ErrorAction SilentlyContinue
+git add docs/adr/ADR-004-刮削链不做-SPI-倒置.md docs/adr/ADR-005-刮削是可选增强.md docs/walkthrough/05-预览与元数据.md docs/superpowers/plans/2026-08-17-00-总览与交接.md docs/superpowers/plans/2026-08-17-05-preview-metadata.md src/test/java/com/mymedia/FlywayMigrationTest.java src/test/java/com/mymedia/preview/FfprobeSmokeTest.java
+git commit -m "docs: 完成预览与元数据阶段的 ADR 与讲解文档"
 ```
 
 ---

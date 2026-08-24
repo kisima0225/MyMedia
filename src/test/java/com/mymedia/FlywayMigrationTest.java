@@ -24,4 +24,24 @@ class FlywayMigrationTest extends AbstractIntegrationTest {
                 "SELECT similarity('进击的巨人', '巨人')", Double.class);
         assertThat(similarity).isGreaterThan(0.0);
     }
+
+    @Test
+    void plan05MigrationsAndTablesAreApplied() {
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*)
+                FROM flyway_schema_history
+                WHERE success AND version = '10'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*)
+                FROM flyway_schema_history
+                WHERE success AND version = '11'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT to_regclass('public.derived_asset')", String.class))
+                .isEqualTo("derived_asset");
+        assertThat(jdbc.queryForObject(
+                "SELECT to_regclass('public.scrape_candidate')", String.class))
+                .isEqualTo("scrape_candidate");
+    }
 }
