@@ -11,5 +11,6 @@
  */
 @org.springframework.modulith.ApplicationModule(
         displayName = "Metadata",
-        allowedDependencies = {"shared", "user", "library", "video", "image"})
+        allowedDependencies = {"shared", "user", "library", "jobs", "scan", "scan::events",
+                               "video", "video::events", "image", "image::events"})
 package com.mymedia.metadata;

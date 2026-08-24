@@ -32,4 +32,18 @@ final class MetadataDto {
                     snapshot.scrapeSourceId());
         }
     }
+
+    record CandidateResponse(
+            Long id,
+            String provider,
+            String externalId,
+            String title,
+            Integer year,
+            double score) {
+
+        static CandidateResponse from(com.mymedia.metadata.ScrapeCandidateRecord record) {
+            return new CandidateResponse(record.id(), record.provider(), record.externalId(),
+                    record.title(), record.year(), record.score());
+        }
+    }
 }

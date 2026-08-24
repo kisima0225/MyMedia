@@ -167,6 +167,16 @@ public class ImageCatalogService {
         return metadataStore.snapshot(nodeId);
     }
 
+    /** 扫描完成后的刮削补齐用。 */
+    @Transactional(readOnly = true)
+    public List<Long> nodesPendingScrape(Long libraryId, int limit) {
+        return jdbc.queryForList("""
+                SELECT id FROM image_node
+                 WHERE library_id = ? AND scrape_status = 'PENDING' AND status = 'ACTIVE'
+                 ORDER BY id LIMIT ?
+                """, Long.class, libraryId, limit);
+    }
+
     /** 扫描完成后的封面补齐用：列出该库中有直属页却还没有封面的节点。 */
     @Transactional(readOnly = true)
     public List<Long> nodesWithoutCover(Long libraryId, int limit) {

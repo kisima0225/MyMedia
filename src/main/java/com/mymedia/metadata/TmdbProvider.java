@@ -112,6 +112,8 @@ class TmdbProvider implements MetadataProvider {
         if (companies.isArray() && !companies.isEmpty()) {
             putIfPresent(extras, "studio", companies.path(0).path("name").asString(null));
         }
+        putIfPresent(extras, "collection",
+                item.path("belongs_to_collection").path("name").asString(null));
 
         if (fields.isEmpty()) {
             return Optional.empty();

@@ -66,6 +66,15 @@ final class NfoParser {
             extras.put("genres", String.join(", ", genres));
         }
 
+        // Kodi 的电影集合写法：<set><name>指环王三部曲</name></set>。
+        NodeList sets = root.getElementsByTagName("set");
+        if (sets.getLength() > 0 && sets.item(0) instanceof Element set) {
+            String setName = firstText(set, "name");
+            // 旧版 Kodi 写成 <set>名字</set>，没有嵌套的 <name>。
+            putIfPresent(extras, "collection",
+                    setName != null ? setName : set.getTextContent());
+        }
+
         return new ParsedNfo(fields, extras);
     }
 

@@ -3,6 +3,7 @@ package com.mymedia.video;
 import com.mymedia.shared.FieldMergePolicy;
 import com.mymedia.shared.MetadataPatch;
 import com.mymedia.shared.MetadataSnapshot;
+import com.mymedia.shared.NaturalSortKey;
 import com.mymedia.shared.NotFoundException;
 import com.mymedia.shared.ScrapeStatus;
 import org.springframework.data.domain.Pageable;
@@ -130,6 +131,37 @@ public class VideoCatalogService {
     @Transactional(readOnly = true)
     public MetadataSnapshot metadataOf(Long itemId) {
         return metadataStore.snapshot(itemId);
+    }
+
+    /**
+     * 把条目挂进一个合集，合集按 (库, 名字) find-or-create。
+     *
+     * <p>先插入再查询使用两个语句：冲突的插入语句等待并发事务结束，
+     * 后续查询在新的 READ COMMITTED 快照中稳定看到已经存在的 id。
+     */
+    @Transactional
+    public void attachToCollection(Long itemId, String collectionName) {
+        Long libraryId = getItem(itemId).getLibraryId();
+        jdbc.update("""
+                INSERT INTO collection (library_id, name, sort_key)
+                VALUES (?, ?, ?)
+                ON CONFLICT (library_id, name) DO NOTHING
+                """, libraryId, collectionName, NaturalSortKey.of(collectionName));
+
+        Long collectionId = jdbc.queryForObject(
+                "SELECT id FROM collection WHERE library_id = ? AND name = ?",
+                Long.class, libraryId, collectionName);
+
+        jdbc.update("INSERT INTO collection_item (collection_id, video_item_id)"
+                + " VALUES (?, ?) ON CONFLICT DO NOTHING", collectionId, itemId);
+    }
+
+    /** 扫描完成后的刮削补齐用。只挑 PENDING。 */
+    @Transactional(readOnly = true)
+    public List<Long> itemsPendingScrape(Long libraryId, int limit) {
+        return jdbc.queryForList(
+                "SELECT id FROM video_item WHERE library_id = ? AND scrape_status = 'PENDING'"
+                        + " ORDER BY id LIMIT ?", Long.class, libraryId, limit);
     }
 
     /** 扫描完成后的封面补齐用：列出该库中还没有封面的条目。 */
