@@ -125,6 +125,14 @@ class VideoSearchServiceTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void ordersFtsOnlyHitsByFtsRankNotTitleSimilarity() {
+        insertItem(library.getId(), "Plain Documentary", null, "rodents rodents rodents");
+        insertItem(library.getId(), "Rodent Facts", null, "rodents");
+
+        assertThat(titles("rodents")).containsExactly("Plain Documentary", "Rodent Facts");
+    }
+
+    @Test
     void neverReturnsItemsFromLibrariesTheUserCannotAccess() {
         MediaLibrary other = newLibrary();
         insertItem(other.getId(), "进击的巨人", null, null);

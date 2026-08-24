@@ -31,19 +31,27 @@ public class VideoSearchService {
     private static final Logger log = LoggerFactory.getLogger(VideoSearchService.class);
 
     private static final String SQL = """
-            SELECT vi.id, vi.library_id, vi.title, vi.sort_title, vi.cover_asset_id,
-                   coalesce((vi.title ILIKE :pattern ESCAPE '\\'
-                    OR vi.original_title ILIKE :pattern ESCAPE '\\'), false) AS substring_hit,
-                   greatest(similarity(lower(vi.title), :lowered),
-                            similarity(lower(coalesce(vi.original_title, '')), :lowered))
-                       AS trgm_score,
-                   ts_rank(vi.search_vector, plainto_tsquery('english', :raw)) AS fts_score
-              FROM video_item vi
-             WHERE vi.library_id IN (:libraryIds)
-               AND (vi.title ILIKE :pattern ESCAPE '\\'
-                    OR vi.original_title ILIKE :pattern ESCAPE '\\'
-                    OR vi.search_vector @@ plainto_tsquery('english', :raw))
-             ORDER BY substring_hit DESC, trgm_score DESC, fts_score DESC, vi.sort_title
+            WITH scored AS (
+                SELECT vi.id, vi.library_id, vi.title, vi.sort_title, vi.cover_asset_id,
+                       coalesce((vi.title ILIKE :pattern ESCAPE '\\'
+                        OR vi.original_title ILIKE :pattern ESCAPE '\\'), false) AS substring_hit,
+                       greatest(similarity(lower(vi.title), :lowered),
+                                similarity(lower(coalesce(vi.original_title, '')), :lowered))
+                           AS trgm_score,
+                       ts_rank(vi.search_vector, plainto_tsquery('english', :raw)) AS fts_score
+                  FROM video_item vi
+                 WHERE vi.library_id IN (:libraryIds)
+                   AND (vi.title ILIKE :pattern ESCAPE '\\'
+                        OR vi.original_title ILIKE :pattern ESCAPE '\\'
+                        OR vi.search_vector @@ plainto_tsquery('english', :raw))
+            )
+            SELECT id, library_id, title, sort_title, cover_asset_id,
+                   substring_hit, trgm_score, fts_score
+              FROM scored
+             ORDER BY substring_hit DESC,
+                      CASE WHEN substring_hit THEN trgm_score END DESC,
+                      CASE WHEN NOT substring_hit THEN fts_score END DESC,
+                      sort_title
              LIMIT :limit
             """;
 
