@@ -15,9 +15,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * {@code image} 模块对外暴露的节点与页查询能力。
@@ -58,6 +61,17 @@ public class ImageCatalogService {
     @Transactional(readOnly = true)
     public List<ImageNode> findRoots(Long libraryId) {
         return nodeRepository.findByLibraryIdAndParentIdIsNullOrderBySortKey(libraryId);
+    }
+
+    /** 按 id 批量取节点，<b>保持入参顺序</b>。理由同 {@code VideoCatalogService.findByIds}。 */
+    @Transactional(readOnly = true)
+    public List<ImageNode> findByIds(Collection<Long> nodeIds) {
+        if (nodeIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, ImageNode> byId = nodeRepository.findAllById(nodeIds).stream()
+                .collect(Collectors.toMap(ImageNode::getId, node -> node));
+        return nodeIds.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
     /**

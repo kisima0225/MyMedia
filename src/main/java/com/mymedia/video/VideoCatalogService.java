@@ -11,9 +11,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * {@code video} 模块对外暴露的条目查询能力。
@@ -51,6 +54,26 @@ public class VideoCatalogService {
     @Transactional(readOnly = true)
     public List<VideoItem> findByLibrary(Long libraryId) {
         return itemRepository.findByLibraryIdIn(List.of(libraryId), Pageable.unpaged()).getContent();
+    }
+
+    /**
+     * 按 id 批量取条目，<b>保持入参顺序</b>。
+     *
+     * <p>顺序很重要：调用方（按标签浏览、收藏列表）的 id 是有序取出来的，
+     * 而 {@code WHERE id IN (…)} 的返回顺序由数据库决定。不重排就会让同一个列表
+     * 每次刷新都换个样子。
+     *
+     * <p>查不到的 id 被静默丢弃而不是留一个 {@code null}：条目可能在调用方
+     * 取到 id 之后被删掉，让列表短一项比让它带一个洞好。
+     */
+    @Transactional(readOnly = true)
+    public List<VideoItem> findByIds(Collection<Long> itemIds) {
+        if (itemIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, VideoItem> byId = itemRepository.findAllById(itemIds).stream()
+                .collect(Collectors.toMap(VideoItem::getId, item -> item));
+        return itemIds.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
     @Transactional(readOnly = true)

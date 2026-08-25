@@ -19,9 +19,11 @@ import java.util.List;
 public class TagService {
 
     private final TagRepository repository;
+    private final TagLinkStore linkStore;
 
-    TagService(TagRepository repository) {
+    TagService(TagRepository repository, TagLinkStore linkStore) {
         this.repository = repository;
+        this.linkStore = linkStore;
     }
 
     /**
@@ -52,5 +54,49 @@ public class TagService {
     @Transactional
     public void delete(Long tagId) {
         repository.delete(getById(tagId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Tag> tagsOf(LibraryDomain domain, Long targetId) {
+        List<Long> tagIds = linkStore.tagIdsOf(domain, targetId);
+        return tagIds.isEmpty() ? List.of() : repository.findAllById(tagIds);
+    }
+
+    /**
+     * 整体替换某个目标的标签组。
+     *
+     * <p><b>替换而不是增删</b>：前端的标签编辑器是一个多选框，用户勾完点保存，
+     * 提交的就是「最终应该有的那一组」。做成 add/remove 两个端点会逼前端自己算差集，
+     * 还要处理两次请求之间失败的中间态。一次覆盖，语义与界面一致，天然幂等。
+     *
+     * @throws IllegalArgumentException 有标签不存在，或有标签不属于该域。数据库那道
+     *         复合外键是最后一道防线，但它给出的错误是 FK 违例，调用方读不懂；
+     *         这里先给一个能读懂的。
+     */
+    @Transactional
+    public List<Tag> setTags(LibraryDomain domain, Long targetId, List<Long> tagIds) {
+        List<Long> distinct = tagIds.stream().distinct().toList();
+        List<Tag> tags = distinct.isEmpty() ? List.of() : repository.findAllById(distinct);
+
+        if (tags.size() != distinct.size()) {
+            throw new IllegalArgumentException("有标签不存在: " + distinct);
+        }
+        tags.stream()
+                .filter(tag -> tag.getDomain() != domain)
+                .findFirst()
+                .ifPresent(tag -> {
+                    throw new IllegalArgumentException(
+                            "标签 " + tag.getName() + " 属于 " + tag.getDomain() + " 域，不能贴到 " + domain);
+                });
+
+        linkStore.replace(domain, targetId, distinct);
+        return tags;
+    }
+
+    /** 标签自己带 domain，所以调用方不需要再传一次。 */
+    @Transactional(readOnly = true)
+    public List<Long> targetIdsWithTag(Long tagId, int limit) {
+        Tag tag = getById(tagId);
+        return linkStore.targetIdsWithTag(tag.getDomain(), tagId, limit);
     }
 }
