@@ -21,13 +21,20 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -88,6 +95,19 @@ class VideoShareControllerTest extends AbstractIntegrationTest {
                 new ShareLinkDto.CreateRequest(password, null)).getToken();
     }
 
+    private ResultActions streamRequest(String token, Long fileId, String rangeHeader) throws Exception {
+        MockHttpServletRequestBuilder request = get("/api/share/{token}/video/stream/{fileId}", token, fileId);
+        if (rangeHeader != null) {
+            request.header(HttpHeaders.RANGE, rangeHeader);
+        }
+
+        MvcResult initial = mockMvc.perform(request)
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        initial.getAsyncResult(Duration.ofSeconds(5).toMillis());
+        return mockMvc.perform(asyncDispatch(initial));
+    }
+
     @Test
     void anAnonymousVisitorCanReadTheItemAndStreamIt() throws Exception {
         String token = share(null);
@@ -97,7 +117,7 @@ class VideoShareControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.item.title").value("沙漠风暴"))
                 .andExpect(jsonPath("$.files[0].id").value(fileId));
 
-        mockMvc.perform(get("/api/share/{token}/video/stream/{fileId}", token, fileId))
+        streamRequest(token, fileId, null)
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
                 .andExpect(content().bytes(CONTENT));
@@ -107,8 +127,7 @@ class VideoShareControllerTest extends AbstractIntegrationTest {
     void rangeRequestsWorkThroughTheShareEndpointToo() throws Exception {
         String token = share(null);
 
-        mockMvc.perform(get("/api/share/{token}/video/stream/{fileId}", token, fileId)
-                        .header(HttpHeaders.RANGE, "bytes=4-7"))
+        streamRequest(token, fileId, "bytes=4-7")
                 .andExpect(status().isPartialContent())
                 .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 4-7/16"))
                 .andExpect(content().bytes("4567".getBytes()));
