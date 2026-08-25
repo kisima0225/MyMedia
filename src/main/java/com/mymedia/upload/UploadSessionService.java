@@ -1,5 +1,6 @@
 package com.mymedia.upload;
 
+import com.mymedia.jobs.JobQueue;
 import com.mymedia.library.LibraryAccessService;
 import com.mymedia.scan.ScannedFile;
 import com.mymedia.shared.NotFoundException;
@@ -32,19 +33,22 @@ public class UploadSessionService {
     private final UploadProperties properties;
     private final UploadStorage storage;
     private final UploadChunkStore chunkStore;
+    private final JobQueue jobQueue;
 
     UploadSessionService(UploadSessionRepository repository,
                          InstantUploadResolver instantResolver,
                          LibraryAccessService accessService,
                          UploadProperties properties,
                          UploadStorage storage,
-                         UploadChunkStore chunkStore) {
+                         UploadChunkStore chunkStore,
+                         JobQueue jobQueue) {
         this.repository = repository;
         this.instantResolver = instantResolver;
         this.accessService = accessService;
         this.properties = properties;
         this.storage = storage;
         this.chunkStore = chunkStore;
+        this.jobQueue = jobQueue;
     }
 
     /**
@@ -126,6 +130,15 @@ public class UploadSessionService {
                     "分片大小不符：期望 " + expected + " 字节，实际 " + written);
         }
         chunkStore.record(sessionId, index, written);
+
+        // 片齐了就转合并。两道防线：条件 UPDATE 保证只有一个线程拿到 1，
+        // 而 dedup_key 上的唯一约束保证即便两个都进来了也只会有一个任务
+        if (chunkStore.count(sessionId) == session.getTotalChunks()
+                && repository.markAssemblingIfReceiving(sessionId) == 1) {
+            jobQueue.enqueue(UploadAssembleJobHandler.JOB_TYPE,
+                    "{\"sessionId\":" + sessionId + "}",
+                    "upload-assemble:" + sessionId);
+        }
     }
 
     /** 最后一片通常是短的；其余都是整片。 */
@@ -143,5 +156,33 @@ public class UploadSessionService {
     @Transactional(readOnly = true)
     public List<Integer> receivedChunks(Long userId, Long sessionId) {
         return chunkStore.receivedIndexes(get(userId, sessionId).getId());
+    }
+
+    /** 合并成功。{@code relativePath} 是文件在媒体库里的最终位置。 */
+    @Transactional
+    void markCompleted(Long sessionId, String relativePath) {
+        repository.findById(sessionId)
+                .orElseThrow(() -> new NotFoundException("找不到上传会话 id=" + sessionId))
+                .completeAt(relativePath);
+    }
+
+    /**
+     * 永久性失败。
+     *
+     * <p>只用于「再试一百遍结果也一样」的失败（缺片、大小不符、哈希不符）。
+     * 读写异常不走这里——那种要抛出去让任务表按退避重试。
+     */
+    @Transactional
+    void markFailed(Long sessionId, String reason) {
+        repository.findById(sessionId)
+                .orElseThrow(() -> new NotFoundException("找不到上传会话 id=" + sessionId))
+                .fail(reason);
+    }
+
+    /** 供合并任务读取会话；不做归属校验，因为任务不代表任何用户。 */
+    @Transactional(readOnly = true)
+    UploadSession forAssembly(Long sessionId) {
+        return repository.findById(sessionId)
+                .orElseThrow(() -> new NotFoundException("找不到上传会话 id=" + sessionId));
     }
 }

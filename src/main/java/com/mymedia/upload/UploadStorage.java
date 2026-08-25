@@ -5,9 +5,11 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 
 /**
@@ -85,5 +87,43 @@ class UploadStorage {
                 Files.deleteIfExists(path);
             }
         }
+    }
+
+    /**
+     * 把 0..{@code totalChunks-1} 号分片按序拼成一个文件，返回总字节数。
+     *
+     * <p>用 {@code FileChannel.transferTo} 逐片搬运：数据在内核态直接从一个文件
+     * 走到另一个，不经过 JVM 堆。与视频流式传输用的是同一个原语。
+     *
+     * <p>缺片直接抛 {@link IOException}——调用方会把它翻成一次可重试的失败，
+     * 而不是拼出一个中间少一块的文件。
+     */
+    long assembleInto(Long sessionId, int totalChunks, Path target) throws IOException {
+        Files.createDirectories(target.getParent());
+        long total = 0;
+
+        try (FileChannel out = FileChannel.open(target,
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+
+            for (int index = 0; index < totalChunks; index++) {
+                Path chunk = chunkPath(sessionId, index);
+                if (!Files.exists(chunk)) {
+                    throw new IOException("缺少分片 " + index + "（会话 " + sessionId + "）");
+                }
+                try (FileChannel in = FileChannel.open(chunk, StandardOpenOption.READ)) {
+                    long size = in.size();
+                    long moved = 0;
+                    while (moved < size) {
+                        long step = in.transferTo(moved, size - moved, out);
+                        if (step <= 0) {
+                            throw new IOException("分片 " + index + " 读取中断");
+                        }
+                        moved += step;
+                    }
+                    total += size;
+                }
+            }
+        }
+        return total;
     }
 }
