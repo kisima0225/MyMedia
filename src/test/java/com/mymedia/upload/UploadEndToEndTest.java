@@ -37,7 +37,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
-        "mymedia.jobs.enabled=false",
+        "mymedia.jobs.enabled=true",
+        "mymedia.jobs.poll-interval=PT1H",
         "mymedia.upload.chunk-size=16",
         // @TestPropertySource 的值必须是编译期常量，拿不到 @TempDir 生成的路径，
         // 所以临时目录用一个固定的相对路径。target/ 本来就会被 mvn clean 清掉

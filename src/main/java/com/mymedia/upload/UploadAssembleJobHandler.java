@@ -17,12 +17,12 @@ class UploadAssembleJobHandler implements JobHandler {
 
     static final String JOB_TYPE = "UPLOAD_ASSEMBLE";
 
-    private final UploadAssembler assembler;
-    private final ObjectMapper objectMapper;
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    UploadAssembleJobHandler(UploadAssembler assembler, ObjectMapper objectMapper) {
+    private final UploadAssembler assembler;
+
+    UploadAssembleJobHandler(UploadAssembler assembler) {
         this.assembler = assembler;
-        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -32,7 +32,7 @@ class UploadAssembleJobHandler implements JobHandler {
 
     @Override
     public void handle(Job job) throws Exception {
-        JsonNode payload = objectMapper.readTree(job.getPayload());
+        JsonNode payload = MAPPER.readTree(job.getPayload());
         JsonNode sessionIdNode = payload.get("sessionId");
         if (sessionIdNode == null || !sessionIdNode.canConvertToLong()) {
             throw new IllegalArgumentException(
