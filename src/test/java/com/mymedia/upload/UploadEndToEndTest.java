@@ -22,9 +22,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -136,10 +138,14 @@ class UploadEndToEndTest extends AbstractIntegrationTest {
         assertThat(sessionService.get(userId, sessionId).getStatus())
                 .isEqualTo(UploadStatus.ASSEMBLING);
 
-        jobPoller.pollOnce();   // UPLOAD_ASSEMBLE
+        // pollOnce() 是异步提交、同步返回的——它返回不代表任务跑完了
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();   // UPLOAD_ASSEMBLE
+            assertThat(sessionService.get(userId, sessionId).getStatus())
+                    .isEqualTo(UploadStatus.COMPLETED);
+        });
 
         UploadSession done = sessionService.get(userId, sessionId);
-        assertThat(done.getStatus()).isEqualTo(UploadStatus.COMPLETED);
         assertThat(done.getRelativePath()).isEqualTo("movie.mkv");
         assertThat(libraryRoot.resolve("movie.mkv")).exists();
         assertThat(Files.readAllBytes(libraryRoot.resolve("movie.mkv"))).isEqualTo(WHOLE);
@@ -147,11 +153,12 @@ class UploadEndToEndTest extends AbstractIntegrationTest {
         // 临时目录清干净了，半成品不会留在磁盘上
         assertThat(Files.exists(UPLOAD_TEMP.resolve(String.valueOf(sessionId)))).isFalse();
 
-        jobPoller.pollOnce();   // 合并时排出的 LIBRARY_SCAN
-
-        assertThat(jdbc.queryForObject("""
-                SELECT count(*) FROM scanned_file WHERE library_id = ? AND relative_path = 'movie.mkv'
-                """, Integer.class, library.getId())).isEqualTo(1);
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();   // 合并时排出的 LIBRARY_SCAN
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM scanned_file WHERE library_id = ? AND relative_path = 'movie.mkv'
+                    """, Integer.class, library.getId())).isEqualTo(1);
+        });
     }
 
     @Test
@@ -160,8 +167,17 @@ class UploadEndToEndTest extends AbstractIntegrationTest {
         send(first, 0, chunk(0));
         send(first, 1, chunk(1));
         send(first, 2, chunk(2));
-        jobPoller.pollOnce();
-        jobPoller.pollOnce();   // 让扫描把 scanned_file 建出来
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(sessionService.get(userId, first).getStatus())
+                    .isEqualTo(UploadStatus.COMPLETED);
+        });
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();   // 让扫描把 scanned_file 建出来
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM scanned_file WHERE library_id = ? AND relative_path = 'movie.mkv'
+                    """, Integer.class, library.getId())).isEqualTo(1);
+        });
 
         UploadSession second = sessionService.create(userId, "movie-copy.mkv",
                 WHOLE.length, wholeHash, library.getId());
@@ -180,7 +196,11 @@ class UploadEndToEndTest extends AbstractIntegrationTest {
         send(sessionId, 0, chunk(0));
         send(sessionId, 1, chunk(1));
         send(sessionId, 2, chunk(2));
-        jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(sessionService.get(userId, sessionId).getStatus())
+                    .isEqualTo(UploadStatus.COMPLETED);
+        });
 
         assertThat(sessionService.get(userId, sessionId).getRelativePath())
                 .isEqualTo("movie (2).mkv");
@@ -197,10 +217,13 @@ class UploadEndToEndTest extends AbstractIntegrationTest {
         send(sessionId, 1, chunk(1));
         send(sessionId, 2, "XXXXXXXX".getBytes());   // 长度对，内容不对
 
-        jobPoller.pollOnce();
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            jobPoller.pollOnce();
+            assertThat(sessionService.get(userId, sessionId).getStatus())
+                    .isEqualTo(UploadStatus.FAILED);
+        });
 
         UploadSession failed = sessionService.get(userId, sessionId);
-        assertThat(failed.getStatus()).isEqualTo(UploadStatus.FAILED);
         assertThat(failed.getLastError()).contains("哈希");
         assertThat(Files.exists(libraryRoot.resolve("tampered.mkv"))).isFalse();
 
