@@ -57,4 +57,19 @@ public final class ShareLinkDto {
                     link.getRevokedAt());
         }
     }
+
+    public record UnlockRequest(@Size(max = 128) String password) {
+    }
+
+    public record UnlockResponse(String ticket) {
+    }
+
+    /**
+     * 未登录访客能看到的全部信息。
+     *
+     * <p><b>不含目标 id、标题与库名</b>：访客只需要知道"这是视频还是图片"
+     * 和"要不要密码"，其余靠对应领域的 share 端点给出。
+     */
+    public record PublicView(LibraryDomain domain, boolean requiresPassword, Instant expiresAt) {
+    }
 }

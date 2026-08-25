@@ -2,6 +2,7 @@ package com.mymedia.image;
 
 import com.mymedia.library.LibraryAccessService;
 import com.mymedia.library.LibraryService;
+import com.mymedia.library.ShareGrant;
 import com.mymedia.scan.ScannedFile;
 import com.mymedia.scan.ScannedFileQueryService;
 import com.mymedia.scan.ScannedFileStatus;
@@ -57,6 +58,28 @@ public class ImagePageService {
         if (!accessService.canAccess(userId, scanned.getLibraryId())) {
             throw new NotFoundException("找不到图片 id=" + fileId);
         }
+        return toTarget(page, scanned);
+    }
+
+    /**
+     * 分享链接的定位入口。访问控制由令牌完成，此处只查包含性。
+     *
+     * <p>图片域分享的是<b>一个节点及其整棵子树</b>：分享「某画师」应当能翻到
+     * 它下面每一本。判断用物化路径前缀匹配——一次字符串比较，不查库，
+     * 这正是存物化路径的收益之一。
+     */
+    @Transactional(readOnly = true)
+    public PageTarget locateForShare(ShareGrant grant, Long fileId) {
+        ImageFile page = catalogService.getFile(fileId);
+        String sharedPath = catalogService.getNode(grant.imageNodeId()).getMaterializedPath();
+
+        if (!catalogService.getNode(page.getNodeId()).getMaterializedPath().startsWith(sharedPath)) {
+            throw new NotFoundException("找不到图片 id=" + fileId);
+        }
+        return toTarget(page, scannedFiles.getById(page.getScannedFileId()));
+    }
+
+    private PageTarget toTarget(ImageFile page, ScannedFile scanned) {
         if (scanned.getStatus() == ScannedFileStatus.MISSING) {
             throw new NotFoundException(
                     "文件当前不可用（可能所在磁盘未挂载）: " + scanned.getRelativePath());

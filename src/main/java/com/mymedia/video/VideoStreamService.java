@@ -2,6 +2,7 @@ package com.mymedia.video;
 
 import com.mymedia.library.LibraryAccessService;
 import com.mymedia.library.LibraryService;
+import com.mymedia.library.ShareGrant;
 import com.mymedia.scan.ScannedFile;
 import com.mymedia.scan.ScannedFileQueryService;
 import com.mymedia.scan.ScannedFileStatus;
@@ -15,6 +16,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Objects;
 
 @Service
 public class VideoStreamService {
@@ -37,8 +39,8 @@ public class VideoStreamService {
     /**
      * 定位物理文件并校验访问权。
      *
-     * <p>无权访问、记录不存在、文件已消失或路径不安全都统一转换为 404，
-     * 避免向调用方泄露媒体库内部状态。
+     * <p>无权访问一律抛 {@link NotFoundException} 而非权限异常——
+     * 返回 403 会泄露「这个 id 确实存在」。
      */
     @Transactional(readOnly = true)
     public StreamTarget locate(Long userId, Long fileId) {
@@ -48,17 +50,37 @@ public class VideoStreamService {
         if (!accessService.canAccess(userId, scanned.getLibraryId())) {
             throw notFound(fileId);
         }
-        if (scanned.getStatus() != ScannedFileStatus.ACTIVE) {
+        return toTarget(videoFile, scanned);
+    }
+
+    /**
+     * 分享链接的定位入口：<b>不查 {@code library_access}</b>，
+     * 访问控制已经由令牌完成（{@code ShareLinkService.resolveUnlocked}）。
+     *
+     * <p>但**包含性必须在这里查**：一张指向条目 A 的分享链接不能被用来播条目 B 的文件。
+     * 这道校验放在服务里而不是控制器里——控制器可能会有第二个入口，服务是必经之路。
+     */
+    @Transactional(readOnly = true)
+    public StreamTarget locateForShare(ShareGrant grant, Long fileId) {
+        VideoFile videoFile = catalogService.getFile(fileId);
+        if (!Objects.equals(videoFile.getItemId(), grant.videoItemId())) {
             throw notFound(fileId);
+        }
+        return toTarget(videoFile, scannedFiles.getById(videoFile.getScannedFileId()));
+    }
+
+    private StreamTarget toTarget(VideoFile videoFile, ScannedFile scanned) {
+        if (scanned.getStatus() != ScannedFileStatus.ACTIVE) {
+            throw notFound(videoFile.getId());
         }
 
         Path root;
         try {
             root = Path.of(libraryService.getById(scanned.getLibraryId()).getRootPath());
         } catch (InvalidPathException | SecurityException e) {
-            throw notFound(fileId);
+            throw notFound(videoFile.getId());
         }
-        Path path = resolveRegularFile(root, scanned.getRelativePath(), fileId);
+        Path path = resolveRegularFile(root, scanned.getRelativePath(), videoFile.getId());
 
         String etag = "\"" + scanned.getId() + "-" + scanned.getSizeBytes()
                 + "-" + scanned.getMtime().toEpochMilli() + "\"";

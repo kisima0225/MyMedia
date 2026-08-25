@@ -1,15 +1,18 @@
 package com.mymedia.library;
 
 import com.mymedia.shared.NotFoundException;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 分享链接的创建、撤销与令牌解析。
@@ -31,12 +34,15 @@ public class ShareLinkService {
 
     private final ShareLinkRepository repository;
     private final PasswordEncoder passwordEncoder;
+    private final ShareTicket shareTicket;
     private final SecureRandom random = new SecureRandom();
     private final Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
 
-    ShareLinkService(ShareLinkRepository repository, PasswordEncoder passwordEncoder) {
+    ShareLinkService(ShareLinkRepository repository, PasswordEncoder passwordEncoder,
+                     ShareTicket shareTicket) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
+        this.shareTicket = shareTicket;
     }
 
     @Transactional
@@ -99,6 +105,47 @@ public class ShareLinkService {
         return new ShareGrant(link.getId(), link.getLibraryId(),
                 link.getVideoItemId(), link.getImageNodeId(),
                 link.isPasswordProtected(), link.getExpiresAt());
+    }
+
+    /**
+     * 校验密码并签发票据。
+     *
+     * <p>返回 {@code Optional.empty()} 表示密码不对——<b>把它翻成 401 是控制器的事</b>，
+     * 服务层不认识 HTTP 状态码。
+     *
+     * <p>不设密码的链接调用本方法同样返回空：没有密码就不需要票据，
+     * 客户端直接访问即可。
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> unlock(String token, String rawPassword) {
+        ShareLink link = repository.findByToken(token)
+                .filter(candidate -> candidate.isUsableAt(Instant.now()))
+                .orElseThrow(() -> new NotFoundException("分享链接不存在或已失效"));
+
+        if (link.passwordHash() == null || rawPassword == null
+                || !passwordEncoder.matches(rawPassword, link.passwordHash())) {
+            return Optional.empty();
+        }
+        return Optional.of(shareTicket.issue(token, Instant.now(), link.getExpiresAt()));
+    }
+
+    /**
+     * 解析令牌，并确认带密码的链接已经解锁。
+     *
+     * <p>三种失败各有各的状态码，区别是有意的：
+     * <ul>
+     *   <li>令牌无效 / 过期 / 已撤销 → <b>404</b>（不确认它是否存在过）</li>
+     *   <li>需要密码但没带票据、或票据不对 → <b>401</b>（此时对方已经证明持有令牌，
+     *       告诉它"这里需要密码"不泄露任何东西，反而是界面弹出密码框的依据）</li>
+     * </ul>
+     */
+    @Transactional(readOnly = true)
+    public ShareGrant resolveUnlocked(String token, String ticket) {
+        ShareGrant grant = resolve(token);
+        if (grant.passwordProtected() && !shareTicket.verify(token, ticket, Instant.now())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "分享链接需要密码");
+        }
+        return grant;
     }
 
     private String newToken() {
