@@ -1,4 +1,4 @@
-package com.mymedia.scan;
+package com.mymedia.shared;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -10,15 +10,23 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * 用于改名检测的内容指纹。
+ * 内容指纹：文件长度 + 首尾各 1MB 的 SHA-256。
  *
  * <p>对大文件只读首尾各 {@value #SAMPLE_WINDOW} 字节，再把文件长度混入摘要。
  * 全量哈希一个 20GB 视频在机械盘上需要数分钟，扫描承受不起。
  *
  * <p><b>取舍</b>：两个首尾相同、仅中段不同的大文件会得到相同指纹。
  * 改名检测的场景是「同一个文件换了位置」，首尾加长度足以区分不同的媒体文件。
+ *
+ * <p><b>住在 {@code shared} 的理由</b>：改名检测（{@code scan}）与秒传
+ * （{@code upload}）都要用它，而它是纯算法、不带任何模块的状态——
+ * 与 {@code NaturalSortKey}、{@code MaterializedPath} 同类，
+ * 符合本项目「复用算法，不复用模型」的惯例。
+ *
+ * <p><b>算法一个字节都不能改</b>：{@code scanned_file.content_hash} 里已经存了按它
+ * 算出来的值，改了会让所有既有指纹失效，下一次扫描会把全部文件当成新文件。
  */
-final class SampledHash {
+public final class SampledHash {
 
     /** 首尾各采样的字节数。 */
     private static final int SAMPLE_WINDOW = 1024 * 1024;
@@ -26,7 +34,7 @@ final class SampledHash {
     private SampledHash() {
     }
 
-    static String of(Path file, long sizeBytes) throws IOException {
+    public static String of(Path file, long sizeBytes) throws IOException {
         MessageDigest digest = newDigest();
 
         // 长度必须参与摘要：否则前缀相同、长度不同的文件会碰撞

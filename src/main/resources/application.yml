@@ -68,3 +68,13 @@ mymedia:
       base-url: https://api.themoviedb.org/3
       api-key: ""                   # 留空 → TmdbProvider 报告不可用，链跳过它，不算错误
       language: zh-CN
+  share:
+    # 留空则每次启动随机生成，重启后带密码的分享链接需要访客重新输一次密码。
+    # 生产部署应当配一个固定值（任意长随机串）。
+    secret: ""
+    ticket-ttl: PT12H
+  upload:
+    # 未合并的分片落在这里，独立于媒体库根目录——半成品绝不能出现在会被扫描的目录里
+    temp-root: ./data/uploads
+    chunk-size: 8388608      # 8MB
+    max-size: 21474836480    # 20GB
