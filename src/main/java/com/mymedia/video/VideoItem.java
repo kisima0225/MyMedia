@@ -50,6 +50,18 @@ public class VideoItem {
     @Column
     private String summary;
 
+    /**
+     * 封面派生资源 id。
+     *
+     * <p><b>只读映射</b>：这一列由计划 05 的
+     * {@code VideoCatalogService.assignCoverIfAbsent} 用一条
+     * {@code UPDATE … WHERE cover_asset_id IS NULL} 原子写入，那条 SQL 同时表达了
+     * 「判断没有封面」与「写入封面」。若这里映射成可写，一个在写入之前加载、
+     * 在写入之后刷新的实体会把缓存里的 {@code null} 刷回去，悄悄抹掉一张刚生成好的封面。
+     */
+    @Column(name = "cover_asset_id", insertable = false, updatable = false)
+    private Long coverAssetId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -74,6 +86,7 @@ public class VideoItem {
     public String getOriginalTitle() { return originalTitle; }
     public String getSortTitle() { return sortTitle; }
     public String getSummary() { return summary; }
+    public Long getCoverAssetId() { return coverAssetId; }
 
     void assignFolder(Long folderId) {
         this.folderId = folderId;

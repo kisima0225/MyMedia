@@ -1,4 +1,4 @@
-package com.mymedia.scan;
+package com.mymedia.shared;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

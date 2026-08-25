@@ -1,5 +1,6 @@
 package com.mymedia.scan;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -34,4 +35,10 @@ interface ScannedFileRepository extends JpaRepository<ScannedFile, Long> {
             WHERE f.libraryId = :libraryId AND f.status = com.mymedia.scan.ScannedFileStatus.MISSING
             """)
     List<ScannedFile> findMissing(@Param("libraryId") Long libraryId);
+
+    Optional<ScannedFile> findByLibraryIdAndContentHashAndStatus(
+            Long libraryId, String contentHash, ScannedFileStatus status);
+
+    List<ScannedFile> findByLibraryIdAndSizeBytesAndContentHashIsNullAndStatusOrderById(
+            Long libraryId, long sizeBytes, ScannedFileStatus status, Limit limit);
 }

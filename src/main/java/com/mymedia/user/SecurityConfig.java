@@ -20,6 +20,10 @@ class SecurityConfig {
         return http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/actuator/health").permitAll()
+                        // 分享链接：令牌本身就是凭证（bearer capability），整段免登录。
+                        // 注意是单数 /api/share/**；管理端点 /api/shares（复数）
+                        // 不被这个模式匹配，仍然需要登录。ShareAccessControllerTest 钉住了这件事。
+                        .requestMatchers("/api/share/**").permitAll()
                         .anyRequest().authenticated())
                 // 本服务是纯 REST API，用 HTTP Basic + 无状态会话，不需要 CSRF 令牌。
                 // 决策记录见 docs/adr/ADR-002-认证方案.md
