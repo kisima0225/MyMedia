@@ -1,5 +1,6 @@
 package com.mymedia.video;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,9 +48,8 @@ public class VideoFavoriteService {
     /** 收藏的条目，最近加入的在前。 */
     @Transactional(readOnly = true)
     public List<VideoItem> listItems(Long userId, int limit) {
-        List<Long> itemIds = repository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+        List<Long> itemIds = repository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, limit)).stream()
                 .map(VideoFavorite::getVideoItemId)
-                .limit(limit)
                 .toList();
         return catalogService.findByIds(itemIds);
     }

@@ -1,5 +1,6 @@
 package com.mymedia.image;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,9 +52,8 @@ public class ImageFavoriteService {
     /** 收藏的节点，最近加入的在前。 */
     @Transactional(readOnly = true)
     public List<ImageNode> listNodes(Long userId, int limit) {
-        List<Long> nodeIds = repository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+        List<Long> nodeIds = repository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, limit)).stream()
                 .map(ImageFavorite::getImageNodeId)
-                .limit(limit)
                 .toList();
         return catalogService.findByIds(nodeIds);
     }
