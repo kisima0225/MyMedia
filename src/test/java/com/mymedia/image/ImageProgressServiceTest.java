@@ -193,7 +193,7 @@ class ImageProgressServiceTest extends AbstractIntegrationTest {
         progressService.record(user.getId(), roots.get(1).getId(), 1);
 
         assertThat(progressService.continueReading(user.getId(), 20))
-                .extracting(ImageProgress::getImageNodeId)
+                .extracting(ImageProgressService.ContinueReadingEntry::nodeId)
                 .containsExactly(roots.get(1).getId(), roots.get(0).getId());
     }
 

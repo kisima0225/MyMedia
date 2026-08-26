@@ -54,8 +54,10 @@ class VideoCatalogControllerUnitTest {
         when(file.getWidth()).thenReturn(1920);
         when(file.getHeight()).thenReturn(1080);
 
+        // getCoverAssetId()/getLibraryId() 未被 stub，Mockito 对 Long 等数值包装类型的
+        // 默认返回值是 0 而不是 null（与集合类型的空默认值同理）。
         assertThat(VideoCatalogDto.ItemSummary.from(item))
-                .isEqualTo(new VideoCatalogDto.ItemSummary(11L, "电影", "MOVIE", "GROUPED"));
+                .isEqualTo(new VideoCatalogDto.ItemSummary(11L, "电影", "MOVIE", "GROUPED", 0L, 0L));
         assertThat(VideoCatalogDto.GroupSummary.from(group))
                 .isEqualTo(new VideoCatalogDto.GroupSummary(12L, 2, "第二季"));
         assertThat(VideoCatalogDto.FileSummary.from(file))
@@ -82,8 +84,9 @@ class VideoCatalogControllerUnitTest {
                 .thenReturn(List.of(videoLibrary, imageLibrary));
         when(catalogService.findByLibrary(21L)).thenReturn(List.of(item));
 
+        // coverAssetId 未被 stub，同样默认为 0（Mockito 对 Long 的默认返回值）。
         assertThat(controller.list(PRINCIPAL))
-                .containsExactly(new VideoCatalogDto.ItemSummary(31L, "可见条目", "MOVIE", "FLAT"));
+                .containsExactly(new VideoCatalogDto.ItemSummary(31L, "可见条目", "MOVIE", "FLAT", 0L, 21L));
     }
 
     @Test

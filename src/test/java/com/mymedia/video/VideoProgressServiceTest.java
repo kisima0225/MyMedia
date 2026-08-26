@@ -4,6 +4,7 @@ import com.mymedia.AbstractIntegrationTest;
 import com.mymedia.jobs.JobPoller;
 import com.mymedia.jobs.JobQueue;
 import com.mymedia.jobs.JobStatus;
+import com.mymedia.library.LibraryAccessService;
 import com.mymedia.library.LibraryDomain;
 import com.mymedia.library.LibraryService;
 import com.mymedia.library.MediaLibrary;
@@ -53,6 +54,9 @@ class VideoProgressServiceTest extends AbstractIntegrationTest {
     LibraryService libraryService;
 
     @Autowired
+    LibraryAccessService accessService;
+
+    @Autowired
     UserRegistrationService registrationService;
 
     @Autowired
@@ -60,6 +64,9 @@ class VideoProgressServiceTest extends AbstractIntegrationTest {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    /** 最近一次 {@link #setUpFiles} 建的库 id，供需要授权访问的用例使用。 */
+    private Long libraryId;
 
     private UserAccount newUser() {
         return registrationService.register(
@@ -74,6 +81,7 @@ class VideoProgressServiceTest extends AbstractIntegrationTest {
         }
         MediaLibrary library = libraryService.create(
                 "库" + UUID.randomUUID(), LibraryDomain.VIDEO, root.toString());
+        libraryId = library.getId();
         Long jobId = scanTrigger.requestScan(library.getId());
         jobPoller.pollOnce();
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
@@ -143,14 +151,16 @@ class VideoProgressServiceTest extends AbstractIntegrationTest {
     void continueWatchingExcludesCompletedAndOrdersByRecency() throws IOException {
         List<Long> fileIds = setUpFiles("电影/e1.mkv", "电影/e2.mkv", "电影/e3.mkv");
         UserAccount user = newUser();
+        accessService.grant(user.getId(), libraryId);
 
         progressService.record(user.getId(), fileIds.get(0), 100, 3600);
         progressService.record(user.getId(), fileIds.get(1), 3550, 3600);   // 看完了
         progressService.record(user.getId(), fileIds.get(2), 200, 3600);
 
-        List<VideoProgress> continueList = progressService.continueWatching(user.getId(), 10);
+        List<VideoProgressService.ContinueWatchingEntry> continueList =
+                progressService.continueWatching(user.getId(), 10);
 
-        assertThat(continueList).extracting(VideoProgress::getVideoFileId)
+        assertThat(continueList).extracting(VideoProgressService.ContinueWatchingEntry::fileId)
                 .containsExactly(fileIds.get(2), fileIds.get(0));
     }
 
@@ -158,6 +168,7 @@ class VideoProgressServiceTest extends AbstractIntegrationTest {
     void continueWatchingRespectsLimit() throws IOException {
         List<Long> fileIds = setUpFiles("电影/f1.mkv", "电影/f2.mkv", "电影/f3.mkv");
         UserAccount user = newUser();
+        accessService.grant(user.getId(), libraryId);
         for (Long id : fileIds) {
             progressService.record(user.getId(), id, 100, 3600);
         }

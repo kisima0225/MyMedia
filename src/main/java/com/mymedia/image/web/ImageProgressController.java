@@ -42,11 +42,10 @@ class ImageProgressController {
     }
 
     @GetMapping("/continue-reading")
-    List<ProgressResponse> continueReading(@AuthenticationPrincipal UserDetails principal,
-                                           @RequestParam(defaultValue = "20") int limit) {
-        return progressService.continueReading(currentUserId(principal), limit).stream()
-                .map(ProgressResponse::from)
-                .toList();
+    List<ImageProgressService.ContinueReadingEntry> continueReading(
+            @AuthenticationPrincipal UserDetails principal,
+            @RequestParam(defaultValue = "20") int limit) {
+        return progressService.continueReading(currentUserId(principal), limit);
     }
 
     private Long currentUserId(UserDetails principal) {

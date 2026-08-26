@@ -161,4 +161,15 @@ class VideoFavoriteServiceTest extends AbstractIntegrationTest {
                         .with(httpBasic(username, "pw")))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void 库访问权被撤销后收藏列表不再返回该条目() throws Exception {
+        favoriteService.add(userId, itemId);
+
+        accessService.revoke(userId, library.getId());
+
+        mockMvc.perform(get("/api/video/favorites").with(httpBasic(username, "pw")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
 }
