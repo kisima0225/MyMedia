@@ -54,10 +54,19 @@ class MediaTicketAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 不在白名单上、没带票据、或者已经认证过的请求一律直接放行给下一环。
+     * 不在白名单上、没带票据、或者当前已经有身份的请求一律直接放行给下一环。
      *
-     * <p>「已经认证过就跳过」很重要：带了 Basic 头又顺手带了票据时，
-     * 应当以 Basic 的身份为准，票据不能覆盖一个更强的凭证。
+     * <p>「已经有身份就跳过」防的是本过滤器覆盖掉更早写入 {@code SecurityContext} 的凭证。
+     * 但它<b>不是</b>「带 Basic 头时以 Basic 为准」这条保证的来源——本过滤器装在
+     * {@code BasicAuthenticationFilter} <b>之前</b>，执行到这里 Basic 认证根本还没跑，
+     * 这个判断此时只可能看到「没有身份」，永远看不到 Basic 派生的 {@code Authentication}。
+     *
+     * <p>「Basic 优先于票据」真正靠的是 {@code BasicAuthenticationFilter} 自己的
+     * {@code authenticationIsRequired(String)}：只要 Basic 头里的用户名和当前
+     * {@code SecurityContext} 里的用户名不一致（或者当前根本没有已认证身份），它就会
+     * 重新用 Basic 凭证认证一次，覆盖掉本过滤器刚写入的身份。本过滤器依赖这个行为，
+     * 但并不实现它——这条端到端保证由 {@code MediaTicketAuthenticationFilterTest} 里
+     * 「票据遇到已认证的 Basic 头时以 Basic 身份为准」那条用例钉住。
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -98,11 +107,18 @@ class MediaTicketAuthenticationFilter extends OncePerRequestFilter {
         try {
             UserAccount account = userQueryService.getById(userId.get());
             UserDetails details = userDetailsService.loadUserByUsername(account.getUsername());
+            if (!details.isEnabled()) {
+                // loadUserByUsername 只在用户名不存在时抛 UsernameNotFoundException；
+                // 对已停用的账号它并不拒绝，返回的就是一个 enabled=false 的 UserDetails。
+                // 普通 Basic 登录靠 DaoAuthenticationProvider 的前置检查挡掉停用账号，
+                // 这里绕开了那条链路，必须自己查 isEnabled()，否则票据就对停用账号失效。
+                return Optional.empty();
+            }
             return Optional.of(UsernamePasswordAuthenticationToken.authenticated(
                     details, null, details.getAuthorities()));
         } catch (RuntimeException e) {
-            // getById 对已删除用户抛 NotFoundException，loadUserByUsername 对停用账号
-            // 抛 UsernameNotFoundException。票据合法但主体没了，等同于没带票据。
+            // getById 对已删除用户抛 NotFoundException，loadUserByUsername 对用户名
+            // 不存在的情况抛 UsernameNotFoundException。票据合法但主体没了，等同于没带票据。
             return Optional.empty();
         }
     }
