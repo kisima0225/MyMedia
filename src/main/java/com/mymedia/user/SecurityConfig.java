@@ -6,10 +6,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -17,7 +19,10 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 class SecurityConfig {
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain filterChain(HttpSecurity http,
+                                    MediaTicketService mediaTicketService,
+                                    UserQueryService userQueryService,
+                                    UserDetailsService userDetailsService) throws Exception {
         return http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health").permitAll()
@@ -34,6 +39,11 @@ class SecurityConfig {
                 // SPA 自己的登录页再也没机会出现。这里只回状态码，不回挑战头。
                 .httpBasic(basic -> basic
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                // 装在 Basic 之前：带了 Basic 头就以 Basic 为准，票据不覆盖更强的凭证
+                .addFilterBefore(
+                        new MediaTicketAuthenticationFilter(
+                                mediaTicketService, userQueryService, userDetailsService),
+                        BasicAuthenticationFilter.class)
                 .build();
     }
 

@@ -22,7 +22,7 @@ import java.util.Optional;
  *
  * <p><b>票据不是完整身份</b>：它只在
  * {@code /api/video/stream/**}、{@code /api/image/page/**}、{@code /api/assets/**}
- * 三条只读路径上被接受，白名单在 {@code MediaTicketAuthenticationFilter} 里。
+ * 三条只读路径上被接受，白名单在 {@link MediaTicketAuthenticationFilter} 里。
  * URL 里的凭证会漏进服务器日志、Referer 头与浏览器历史，把它能干的事
  * 限制在「看内容」上，泄漏的代价就被钉死了。这条取舍见 ADR-008。
  *
