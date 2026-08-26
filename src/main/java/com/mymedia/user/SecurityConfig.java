@@ -2,6 +2,7 @@ package com.mymedia.user;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -30,6 +31,14 @@ class SecurityConfig {
                         // 注意是单数 /api/share/**；管理端点 /api/shares（复数）
                         // 不被这个模式匹配，仍然需要登录。ShareAccessControllerTest 钉住了这件事。
                         .requestMatchers("/api/share/**").permitAll()
+                        // 静态资源与前端路由整段放行：登录页本身就是静态资源，
+                        // 要求登录才能拿到登录页是个死循环。真正的数据全在 /api 下，
+                        // 那里仍然 anyRequest().authenticated()。
+                        .requestMatchers(HttpMethod.GET,
+                                "/", "/index.html", "/favicon.ico", "/assets/**",
+                                "/video/**", "/image/**", "/search", "/favorites",
+                                "/tags/**", "/admin/**", "/s/**", "/login")
+                        .permitAll()
                         .anyRequest().authenticated())
                 // 本服务是纯 REST API，用 HTTP Basic + 无状态会话，不需要 CSRF 令牌。
                 // 决策记录见 docs/adr/ADR-002-认证方案.md
