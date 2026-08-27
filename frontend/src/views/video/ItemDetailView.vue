@@ -116,6 +116,13 @@ const shareLink = ref<string | null>(null)
 const shareCreated = ref(false)
 const copyStatus = ref<'idle' | 'copied' | 'failed'>('idle')
 
+const COPY_STATUS_LABEL: Record<typeof copyStatus.value, string> = {
+  idle: '复制链接',
+  copied: '已复制',
+  failed: '复制失败',
+}
+const copyButtonLabel = computed(() => COPY_STATUS_LABEL[copyStatus.value])
+
 function toggleSharePanel(): void {
   shareOpen.value = !shareOpen.value
 }
@@ -237,7 +244,7 @@ async function copyShareLink(): Promise<void> {
               <div class="share-link-row">
                 <code class="share-link">{{ shareLink }}</code>
                 <button type="button" class="action" @click="copyShareLink">
-                  {{ copyStatus === 'copied' ? '已复制' : '复制链接' }}
+                  {{ copyButtonLabel }}
                 </button>
               </div>
             </template>
