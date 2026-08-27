@@ -34,12 +34,17 @@ public final class VideoCatalogDto {
         }
     }
 
-    public record FileSummary(Long id, String role, Integer episodeIndex,
+    /**
+     * @param groupId GROUPED 结构下这个文件所属的分组 id；FLAT 结构或未分组的文件为 null。
+     *                前端渲染剧集列表要按 groups 分节，没有这个字段就不知道每个文件
+     *                该落进哪一节——{@link VideoFile#getGroupId()} 一直都有，这里补上映射。
+     */
+    public record FileSummary(Long id, Long groupId, String role, Integer episodeIndex,
                               Integer durationSeconds, Integer width, Integer height) {
 
         static FileSummary from(VideoFile file) {
-            return new FileSummary(file.getId(), file.getRole().name(), file.getEpisodeIndex(),
-                    file.getDurationSeconds(), file.getWidth(), file.getHeight());
+            return new FileSummary(file.getId(), file.getGroupId(), file.getRole().name(),
+                    file.getEpisodeIndex(), file.getDurationSeconds(), file.getWidth(), file.getHeight());
         }
     }
 

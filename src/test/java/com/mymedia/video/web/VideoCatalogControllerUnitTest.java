@@ -48,6 +48,7 @@ class VideoCatalogControllerUnitTest {
 
         VideoFile file = mock(VideoFile.class);
         when(file.getId()).thenReturn(13L);
+        when(file.getGroupId()).thenReturn(12L);
         when(file.getRole()).thenReturn(VideoFileRole.PRIMARY);
         when(file.getEpisodeIndex()).thenReturn(3);
         when(file.getDurationSeconds()).thenReturn(120);
@@ -61,7 +62,7 @@ class VideoCatalogControllerUnitTest {
         assertThat(VideoCatalogDto.GroupSummary.from(group))
                 .isEqualTo(new VideoCatalogDto.GroupSummary(12L, 2, "第二季"));
         assertThat(VideoCatalogDto.FileSummary.from(file))
-                .isEqualTo(new VideoCatalogDto.FileSummary(13L, "PRIMARY", 3, 120, 1920, 1080));
+                .isEqualTo(new VideoCatalogDto.FileSummary(13L, 12L, "PRIMARY", 3, 120, 1920, 1080));
     }
 
     @Test
