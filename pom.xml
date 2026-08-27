@@ -16,6 +16,8 @@
 	<properties>
 		<java.version>25</java.version>
 		<spring-modulith.version>2.1.0</spring-modulith.version>
+		<node.version>v24.19.0</node.version>
+		<skipFrontend>false</skipFrontend>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -167,6 +169,71 @@
 	</dependencyManagement>
 	<build>
 		<plugins>
+			<plugin>
+				<groupId>com.github.eirslett</groupId>
+				<artifactId>frontend-maven-plugin</artifactId>
+				<version>2.0.2</version>
+				<configuration>
+					<workingDirectory>frontend</workingDirectory>
+					<!-- 装在项目根下而不是 target/：否则 mvn clean 会把 Node
+					     一起删掉，每次 clean build 都要重新下载 30 MB。
+					     这个目录已写进 .gitignore。 -->
+					<installDirectory>${project.basedir}/.frontend-toolchain</installDirectory>
+					<skip>${skipFrontend}</skip>
+				</configuration>
+				<executions>
+					<execution>
+						<id>install-node-and-npm</id>
+						<goals><goal>install-node-and-npm</goal></goals>
+						<phase>generate-resources</phase>
+						<configuration>
+							<!-- 不要配 npmVersion：这个 Node 自带 npm 11.17.0，
+							     配了只是多下载一次。已实测。 -->
+							<nodeVersion>${node.version}</nodeVersion>
+						</configuration>
+					</execution>
+					<execution>
+						<id>npm-ci</id>
+						<goals><goal>npm</goal></goals>
+						<phase>generate-resources</phase>
+						<configuration>
+							<arguments>ci --no-audit --no-fund</arguments>
+						</configuration>
+					</execution>
+					<execution>
+						<id>npm-test</id>
+						<goals><goal>npm</goal></goals>
+						<phase>generate-resources</phase>
+						<configuration>
+							<arguments>run test</arguments>
+						</configuration>
+					</execution>
+					<execution>
+						<id>npm-build</id>
+						<goals><goal>npm</goal></goals>
+						<phase>generate-resources</phase>
+						<configuration>
+							<arguments>run build</arguments>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<artifactId>maven-resources-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>copy-frontend-dist</id>
+						<phase>process-resources</phase>
+						<goals><goal>copy-resources</goal></goals>
+						<configuration>
+							<outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+							<resources>
+								<resource><directory>frontend/dist</directory></resource>
+							</resources>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
