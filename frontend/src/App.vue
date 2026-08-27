@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { formatDuration } from '@/lib/duration'
+import AppShell from '@/components/AppShell.vue'
 </script>
 
 <template>
-  <main>
-    <h1>MyMedia</h1>
-    <p>前端骨架已就位。示例时长：{{ formatDuration(4567) }}</p>
-  </main>
+  <AppShell>
+    <RouterView />
+  </AppShell>
 </template>
