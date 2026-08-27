@@ -53,6 +53,10 @@ const isEmpty = computed(
   () => status.value === 'ready' && sections.value.length === 0 && continueEntries.value.length === 0,
 )
 
+// 「按目录浏览」入口：spec §6.3 把目录树定为次要视图，所以只在首页右上角放一个
+// 不显眼的链接，不占顶栏位置。零个视频库时压根不渲染——链过去也没什么可看的。
+const browseLibraryId = computed(() => librariesStore.videoLibraries[0]?.id)
+
 // 首屏入场：按索引错开，最多错到第 12 张，再往后一起进场，避免长列表拖出波浪。
 function enterDelay(index: number): string {
   return `${Math.min(index, 12) * 20}ms`
@@ -68,6 +72,12 @@ function enterDelay(index: number): string {
     <ErrorState v-else-if="status === 'error'" :error="error" :onRetry="load" />
 
     <template v-else>
+      <div v-if="browseLibraryId != null" class="browse-link-row">
+        <RouterLink :to="{ name: 'video-browse', query: { libraryId: browseLibraryId } }" class="browse-link">
+          按目录浏览
+        </RouterLink>
+      </div>
+
       <ContinueRow :entries="continueEntries" />
 
       <div v-if="isEmpty" class="empty-wrap">
@@ -98,6 +108,23 @@ function enterDelay(index: number): string {
 </template>
 
 <style scoped>
+.browse-link-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.browse-link {
+  color: var(--dim);
+  font-size: var(--step--1);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.browse-link:hover {
+  color: var(--accent);
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

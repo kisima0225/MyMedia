@@ -68,4 +68,45 @@ export interface ShareLink {
   revokedAt: string | null
 }
 
-// 其余（搜索命中、上传会话、刮削候选）在用到它们的任务里补，每个都注明对应的后端 record。
+/** 对应后端 VideoBrowseDto.FolderNode(Long id, String name, int depth, int totalItemCount)。 */
+export interface VideoFolderSummary {
+  id: number
+  name: string
+  depth: number
+  totalItemCount: number
+}
+
+/**
+ * 对应后端 VideoBrowseDto.ItemNode(Long id, String title, String itemType, String structure)。
+ * 注意没有 coverAssetId——目录树只承载导航，不带元数据（spec §6.3），这是后端设计约束，
+ * 不是遗漏。恰好仍满足 VideoCard 的局部 VideoCardItem 类型，直接传即可。
+ */
+export interface VideoBrowseItemNode {
+  id: number
+  title: string
+  itemType: VideoItemSummary['itemType']
+  structure: VideoItemSummary['structure']
+}
+
+/** 对应后端 VideoBrowseDto.BrowseResponse(breadcrumb, folders, items)。 */
+export interface VideoBrowseResult {
+  breadcrumb: VideoFolderSummary[]
+  folders: VideoFolderSummary[]
+  items: VideoBrowseItemNode[]
+}
+
+/**
+ * 对应后端 VideoSearchHit(Long itemId, Long libraryId, String title, String sortTitle,
+ * Long coverAssetId, double score)。注意 id 字段叫 itemId，不叫 id——传给 VideoCard 前
+ * 要自己映射一次。
+ */
+export interface VideoSearchHit {
+  itemId: number
+  libraryId: number
+  title: string
+  sortTitle: string
+  coverAssetId: number | null
+  score: number
+}
+
+// 其余（上传会话、刮削候选）在用到它们的任务里补，每个都注明对应的后端 record。

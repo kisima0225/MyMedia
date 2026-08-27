@@ -2,6 +2,7 @@
 import { watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import DomainNav from './DomainNav.vue'
+import SearchBox from './SearchBox.vue'
 
 const route = useRoute()
 
@@ -20,7 +21,7 @@ watchEffect(() => {
     <header v-if="!route.meta.bare" class="bar">
       <RouterLink :to="{ name: 'video-home' }" class="brand">MyMedia</RouterLink>
       <DomainNav />
-      <slot name="actions" />
+      <SearchBox />
     </header>
     <main :class="{ bare: route.meta.bare }">
       <slot />
