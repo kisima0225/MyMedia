@@ -27,7 +27,7 @@ export interface ContinueReadingEntry {
   pageIndex: number; totalPageCount: number
 }
 export interface VideoPreviewView {
-  videoFileId: number; coverAssetId: number | null; thumbnailAssetId: number | null
+  videoFileId: number; itemId: number; coverAssetId: number | null; thumbnailAssetId: number | null
   spriteAssetId: number | null; spriteVttAssetId: number | null
 }
 

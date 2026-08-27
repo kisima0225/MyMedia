@@ -83,6 +83,8 @@ class VideoPreviewControllerTest extends AbstractIntegrationTest {
     private String strangerName;
     private Long videoFileId;
     private Long bareFileId;
+    private Long videoItemId;
+    private Long bareItemId;
     private Long coverAssetId;
     private Long spriteAssetId;
     private Long vttAssetId;
@@ -102,8 +104,10 @@ class VideoPreviewControllerTest extends AbstractIntegrationTest {
 
         List<Long> itemIds = catalogService.findByLibrary(library.getId()).stream()
                 .map(item -> item.getId()).sorted().toList();
-        VideoFile withSprite = catalogService.filesOf(itemIds.get(0)).getFirst();
-        VideoFile bare = catalogService.filesOf(itemIds.get(1)).getFirst();
+        videoItemId = itemIds.get(0);
+        bareItemId = itemIds.get(1);
+        VideoFile withSprite = catalogService.filesOf(videoItemId).getFirst();
+        VideoFile bare = catalogService.filesOf(bareItemId).getFirst();
         videoFileId = withSprite.getId();
         bareFileId = bare.getId();
 
@@ -134,6 +138,7 @@ class VideoPreviewControllerTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/preview/video/" + videoFileId).with(httpBasic(username, "pw")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.videoFileId").value(videoFileId))
+                .andExpect(jsonPath("$.itemId").value(videoItemId))
                 .andExpect(jsonPath("$.coverAssetId").value(coverAssetId))
                 .andExpect(jsonPath("$.spriteAssetId").value(spriteAssetId))
                 .andExpect(jsonPath("$.spriteVttAssetId").value(vttAssetId));
@@ -144,6 +149,7 @@ class VideoPreviewControllerTest extends AbstractIntegrationTest {
         // 只造了封面、没造雪碧图的文件
         mockMvc.perform(get("/api/preview/video/" + bareFileId).with(httpBasic(username, "pw")))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.itemId").value(bareItemId))
                 .andExpect(jsonPath("$.coverAssetId").value(bareCoverAssetId))
                 .andExpect(jsonPath("$.spriteAssetId").doesNotExist());
     }

@@ -6,7 +6,7 @@ import { mediaUrl, assetUrlAsync } from '@/api/media'
 import { parseVtt, type SpriteCue } from '@/lib/sprite'
 import ErrorState from '@/components/common/ErrorState.vue'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
-import type { ContinueWatchingEntry, VideoFileSummary, VideoPreviewView } from '@/api/types'
+import type { VideoFileSummary, VideoPreviewView } from '@/api/types'
 
 // props: true（router/index.ts）把 :fileId 直接注入成这个字符串 prop——路由参数
 // 永远是字符串，转成数字的责任留在这个视图里，不往下游泄露。
@@ -49,19 +49,14 @@ async function loadSpritePreview(preview: VideoPreviewView): Promise<void> {
 }
 
 /**
- * 上一集/下一集需要先知道这个 fileId 属于哪个 itemId，但路由参数和
- * videoPreview() 都不带 itemId——唯一现成的桥是 continueWatching()：
- * 如果这个文件已经报过进度，它会出现在那份列表里，带着 itemId。
- *
- * 一个从没播放过的文件不会出现在 continueWatching() 里，这种情况下
- * itemId 无从查起——上一集/下一集按钮就禁用，而不是为了这个任务
- * 新开一个把 fileId 映射到 itemId 的后端端点（这个计划的范围明确是纯前端）。
+ * 上一集/下一集需要先知道这个 fileId 属于哪个 itemId——videoPreview() 的响应体
+ * 现在直接带 itemId（后端 VideoPreviewController 本就已经查出了 item，只是
+ * 之前没放进响应），不必再通过 continueWatching() 反查，因此从没播放过的
+ * 文件也能正常算出前后邻居。
  */
-async function resolveSiblingEpisodes(id: number, progress: ContinueWatchingEntry[]): Promise<void> {
-  const entry = progress.find((e) => e.fileId === id)
-  if (!entry) return
+async function resolveSiblingEpisodes(id: number, itemId: number): Promise<void> {
   try {
-    const detail = await itemDetail(entry.itemId)
+    const detail = await itemDetail(itemId)
     // 与 EpisodeList 相同的顺序规则：GROUPED 结构按 groupIndex 分组、组内按
     // episodeIndex 排序后拼接，未归组的文件追加在最后（对应 EpisodeList 的
     // "其他文件" 兜底节）；FLAT 结构直接按 episodeIndex 排序。
@@ -110,7 +105,7 @@ async function load(): Promise<void> {
     const progress = await continueWatching()
     const entry = progress.find((e) => e.fileId === id)
     resumePosition.value = entry && !entry.completed ? entry.positionSeconds : null
-    await resolveSiblingEpisodes(id, progress)
+    await resolveSiblingEpisodes(id, preview.itemId)
 
     status.value = 'ready'
   } catch (err) {

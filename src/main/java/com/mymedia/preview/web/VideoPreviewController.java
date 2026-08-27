@@ -65,6 +65,7 @@ class VideoPreviewController {
         Long source = file.getScannedFileId();
         return new VideoPreviewView(
                 videoFileId,
+                item.getId(),
                 assetId(DerivedAssetKind.COVER, source),
                 assetId(DerivedAssetKind.THUMBNAIL, source),
                 assetId(DerivedAssetKind.SPRITE_SHEET, source),
@@ -78,7 +79,7 @@ class VideoPreviewController {
                 .orElse(null);
     }
 
-    record VideoPreviewView(Long videoFileId, Long coverAssetId, Long thumbnailAssetId,
+    record VideoPreviewView(Long videoFileId, Long itemId, Long coverAssetId, Long thumbnailAssetId,
                             Long spriteAssetId, Long spriteVttAssetId) {
     }
 }
