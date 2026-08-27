@@ -16,6 +16,9 @@ const status = ref<'loading' | 'ready' | 'error'>('loading')
 const error = ref<unknown>(null)
 const node = ref<ImageNodeSummary | null>(null)
 const browseData = ref<{ breadcrumb: ImageNodeSummary[]; nodes: ImageNodeSummary[] } | null>(null)
+// 阅读模式切换失败时的可见反馈——error 只在 status === 'error'（整页错误态）时
+// 才会被 ErrorState 读到，切换失败不该把整页判成 error，所以单独开一个字段。
+const modeError = ref<string | null>(null)
 
 const READING_MODE_OPTIONS: { value: ImageNodeSummary['readingMode']; label: string }[] = [
   { value: 'AUTO', label: '自动判定' },
@@ -51,13 +54,20 @@ watch(nodeId, load)
 async function onReadingModeChange(event: Event): Promise<void> {
   const current = node.value
   if (!current) return
-  const mode = (event.target as HTMLSelectElement).value as ImageNodeSummary['readingMode']
+  const select = event.target as HTMLSelectElement
+  const mode = select.value as ImageNodeSummary['readingMode']
   if (mode === current.readingMode) return
+  modeError.value = null
   try {
     node.value = await setReadingMode(current.id, mode)
   } catch (err) {
-    // 失败就把下拉框的值弹回去，不把整页判成 error——这只是一次局部操作失败。
-    error.value = err
+    // 浏览器在 @change 触发之前就已经把 <select> 的显示值改成了用户点的那项；
+    // 这里的 :value 绑定表达式（node.readingMode）在失败时没有变化，Vue 检测不到
+    // "需要把 DOM 写回去"的理由，不会自动纠正。所以要拿着这次事件的 event.target
+    // 手动把显示值拨回真正生效的模式，否则下拉框会静默停在一个从未生效的选项上，
+    // 且没有任何界面提示——console.warn 用户看不到。
+    select.value = current.readingMode
+    modeError.value = '切换阅读模式失败，请重试'
     console.warn('切换阅读模式失败', err)
   }
 }
@@ -78,14 +88,17 @@ async function onReadingModeChange(event: Event): Promise<void> {
     <template v-else-if="node && browseData">
       <div class="header-row">
         <Breadcrumb :trail="browseData.breadcrumb" />
-        <label class="mode-switch">
-          <span>阅读模式</span>
-          <select :value="node.readingMode" @change="onReadingModeChange">
-            <option v-for="opt in READING_MODE_OPTIONS" :key="opt.value" :value="opt.value">
-              {{ node.readingMode === opt.value ? '✓ ' : '' }}{{ opt.label }}
-            </option>
-          </select>
-        </label>
+        <div class="mode-switch-wrap">
+          <label class="mode-switch">
+            <span>阅读模式</span>
+            <select :value="node.readingMode" @change="onReadingModeChange">
+              <option v-for="opt in READING_MODE_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ node.readingMode === opt.value ? '✓ ' : '' }}{{ opt.label }}
+              </option>
+            </select>
+          </label>
+          <span v-if="modeError" class="mode-error" role="alert">{{ modeError }}</span>
+        </div>
       </div>
 
       <!-- 双入口是这个页面的全部意义（spec §6.4）：readable 与 browsable 同时为真时，
@@ -121,6 +134,14 @@ async function onReadingModeChange(event: Event): Promise<void> {
   margin-bottom: var(--space-5);
 }
 
+.mode-switch-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  flex: none;
+}
+
 .mode-switch {
   display: inline-flex;
   align-items: center;
@@ -128,6 +149,11 @@ async function onReadingModeChange(event: Event): Promise<void> {
   flex: none;
   font-size: var(--step--1);
   color: var(--dim);
+}
+
+.mode-error {
+  font-size: var(--step--1);
+  color: var(--accent);
 }
 
 .mode-switch select {
