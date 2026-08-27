@@ -102,10 +102,11 @@ function onInputKeydown(event: KeyboardEvent): void {
   if (!q) return
   closeSuggestions()
   if (event.ctrlKey) {
-    // 域内搜索目前只有视频域实现了；其他域按下 Ctrl+Enter 暂时没有效果，
-    // 而不是误跳到一个还不存在的域内搜索页。
+    // 域内搜索：两个域各自的搜索页都已实现，按当前所在域跳转到对应的域内搜索路由。
     if (route.meta.domain === 'video') {
       router.push({ name: 'video-search', query: { q } })
+    } else if (route.meta.domain === 'image') {
+      router.push({ name: 'image-search', query: { q } })
     }
     return
   }
@@ -148,7 +149,7 @@ onUnmounted(() => {
       v-model="query"
       type="search"
       class="input"
-      placeholder="搜索…（按 / 聚焦，Enter 全局搜索，视频域内 Ctrl+Enter 只搜视频）"
+      placeholder="搜索…（按 / 聚焦，Enter 全局搜索，Ctrl+Enter 只搜当前所在域）"
       aria-label="搜索"
       autocomplete="off"
       @focus="onFocus"
