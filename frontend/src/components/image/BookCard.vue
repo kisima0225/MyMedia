@@ -48,32 +48,44 @@ function goRead(): void {
 </script>
 
 <template>
-  <RouterLink :to="target" class="book">
+  <!--
+    .book 本身是一个纯容器 div，不是链接：HTML5 不允许交互内容互相嵌套
+    （<a> 里不能合法地放 <button>）。「阅读」这个入口的意义正是给用户一个
+    真实的二选一（不要替用户二选一），如果因为嵌套在 <a> 里而被部分辅助技术
+    忽略，这个入口就白做了。所以拆成两个 RouterLink（封面一个、标题+元信息
+    一个）夹着一个真正独立的 <button>，三者是兄弟节点，不是谁包着谁。
+  -->
+  <div class="book">
     <div class="volume">
       <!-- ★ 签名元素：书脊。
            一条 4px 的竖向渐变，让封面读起来是一本有厚度的册子而不是一张缩略图。
            它用两行 CSS 表达了后端整套 image_node 树最核心的主张：
            图片域的单位是「一本」，不是「一张」。 -->
       <span class="spine" aria-hidden="true" />
-      <Cover :asset-id="node.coverAssetId" ratio="2/3" :alt="node.displayName" />
-      <button v-if="showReadButton" type="button" class="read-btn" @click.stop.prevent="goRead">
+      <RouterLink :to="target" class="cover-link" :aria-label="node.displayName">
+        <Cover :asset-id="node.coverAssetId" ratio="2/3" :alt="node.displayName" />
+      </RouterLink>
+      <button v-if="showReadButton" type="button" class="read-btn" @click="goRead">
         阅读
       </button>
     </div>
-    <h3 class="title">{{ node.displayName }}</h3>
-    <p class="meta">
-      <template v-if="progress">第 {{ progress.pageIndex + 1 }} / {{ progress.totalPageCount }} 页</template>
-      <template v-else>
-        <template v-if="node.readable">{{ node.totalPageCount }} 页</template>
-        <template v-if="node.readable && node.browsable"> · </template>
-        <template v-if="node.browsable">{{ node.childNodeCount }} 项</template>
-      </template>
-    </p>
-  </RouterLink>
+    <RouterLink :to="target" class="text-link">
+      <h3 class="title">{{ node.displayName }}</h3>
+      <p class="meta">
+        <template v-if="progress">第 {{ progress.pageIndex + 1 }} / {{ progress.totalPageCount }} 页</template>
+        <template v-else>
+          <template v-if="node.readable">{{ node.totalPageCount }} 页</template>
+          <template v-if="node.readable && node.browsable"> · </template>
+          <template v-if="node.browsable">{{ node.childNodeCount }} 项</template>
+        </template>
+      </p>
+    </RouterLink>
+  </div>
 </template>
 
 <style scoped>
-.book {
+.cover-link,
+.text-link {
   display: block;
   color: inherit;
   text-decoration: none;
@@ -104,8 +116,14 @@ function goRead(): void {
   );
 }
 
+/*
+ * .book 不再是单一的可聚焦元素（它是纯容器 div），hover/focus 状态改从
+ * .book 本身取——鼠标悬停在封面链接、标题链接或按钮任一子元素上都会让
+ * .book:hover 成立（CSS :hover 对祖先同样生效）；键盘 Tab 到任一子元素时
+ * :focus-within 成立，效果同上。
+ */
 .book:hover .volume,
-.book:focus-visible .volume {
+.book:focus-within .volume {
   /* 抬起 2px，影子跟着变深——一个被拿起来的实体。
      刻意不做 scale：书不会因为你看它一眼就变大 */
   transform: translateY(-2px);
