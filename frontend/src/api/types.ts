@@ -20,7 +20,11 @@ export interface ImageNodeSummary {
   id: number; name: string; displayName: string; depth: number
   sourceKind: 'DIRECTORY' | 'ARCHIVE'; readingMode: 'AUTO' | 'FORCE_BOOK' | 'FORCE_FOLDER'
   directPageCount: number; childNodeCount: number; totalPageCount: number
-  readable: boolean; browsable: boolean; coverAssetId: number | null
+  readable: boolean; browsable: boolean; coverAssetId: number | null; libraryId: number
+}
+/** 对应后端 ImageNodeDto.PageSummary(Long id, int pageIndex, Integer width, Integer height)。 */
+export interface ImagePageSummary {
+  id: number; pageIndex: number; width: number | null; height: number | null
 }
 export interface ContinueReadingEntry {
   nodeId: number; nodeTitle: string; coverAssetId: number | null
