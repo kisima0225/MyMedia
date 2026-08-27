@@ -1,5 +1,5 @@
 import { apiGet, apiSend } from './client'
-import type { ImageNodeSummary, ContinueReadingEntry, ImagePageSummary } from './types'
+import type { ImageNodeSummary, ContinueReadingEntry, ImagePageSummary, ImageSearchHit } from './types'
 
 // 一层薄封装：每个函数只负责拼路径、标注返回类型，不在这里做任何数据加工——
 // 分组、排序、字段裁剪都留给调用方（视图/组件），这里保持可以一眼看穿。
@@ -26,3 +26,6 @@ export const setReadingMode = (id: number, mode: 'AUTO' | 'FORCE_BOOK' | 'FORCE_
 
 export const recordReadProgress = (nodeId: number, pageIndex: number) =>
   apiSend<void>('PUT', `/api/image/progress/${nodeId}`, { pageIndex })
+
+export const searchImage = (q: string, limit = 20) =>
+  apiGet<ImageSearchHit[]>(`/api/image/search?q=${encodeURIComponent(q)}&limit=${limit}`)

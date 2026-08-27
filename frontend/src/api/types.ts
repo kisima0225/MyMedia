@@ -30,6 +30,22 @@ export interface ContinueReadingEntry {
   nodeId: number; nodeTitle: string; coverAssetId: number | null
   pageIndex: number; totalPageCount: number
 }
+/**
+ * 对应后端 ImageSearchHit(Long nodeId, Long libraryId, String name, String title,
+ * Long coverAssetId, int totalPageCount, boolean readable, double score)。
+ * name 是目录/压缩包原名，一定有；title 是刮削来的，可能为 null——展示时优先 title
+ * （后端 record 的注释里写明的规矩），喂给 BookCard 前要做这个兜底与形状映射。
+ */
+export interface ImageSearchHit {
+  nodeId: number
+  libraryId: number
+  name: string
+  title: string | null
+  coverAssetId: number | null
+  totalPageCount: number
+  readable: boolean
+  score: number
+}
 export interface VideoPreviewView {
   videoFileId: number; itemId: number; coverAssetId: number | null; thumbnailAssetId: number | null
   spriteAssetId: number | null; spriteVttAssetId: number | null
