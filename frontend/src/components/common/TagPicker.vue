@@ -90,7 +90,13 @@ async function handleEnter(): Promise<void> {
   <div class="tag-picker">
     <div class="chips">
       <span v-for="tag in selected" :key="tag.id" class="chip">
-        {{ tag.name }}
+        <!-- 名字与移除按钮是兄弟节点，不是谁包着谁——RouterLink 渲染成 <a>，
+             HTML5 不允许交互内容互相嵌套，之前正是在这类地方栽过一次
+             （D 段 Task 12 review 抓到的问题），这次从一开始就按兄弟节点写。
+             这是目前前端唯一显示标签本体、能点进 /tags/:id 的地方。 -->
+        <RouterLink :to="{ name: 'tag', params: { id: tag.id } }" class="chip-name">
+          {{ tag.name }}
+        </RouterLink>
         <button type="button" class="remove" :disabled="busy" aria-label="移除标签" @click="removeTag(tag)">
           ×
         </button>
@@ -145,6 +151,16 @@ async function handleEnter(): Promise<void> {
   background: var(--accent-dim);
   color: var(--accent);
   font-size: var(--step--1);
+}
+
+.chip-name {
+  color: inherit;
+  text-decoration: none;
+}
+
+.chip-name:hover,
+.chip-name:focus-visible {
+  text-decoration: underline;
 }
 
 .remove {

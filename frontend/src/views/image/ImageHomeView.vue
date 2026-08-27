@@ -78,6 +78,15 @@ function continueReadingNode(entry: ContinueReadingEntry) {
     <ErrorState v-else-if="status === 'error'" :error="error" :onRetry="load" />
 
     <template v-else>
+      <!-- 「我的收藏」入口：与视频首页的 browse-link-row 同一条规矩——图片域没有
+           独立的目录浏览顶层路由（浏览走 /image/nodes/:id，从根节点卡片点进去），
+           所以这一行只放收藏链接，样式与视频域保持一致。 -->
+      <div class="browse-link-row">
+        <RouterLink :to="{ name: 'favorites' }" class="browse-link">
+          我的收藏
+        </RouterLink>
+      </div>
+
       <section v-if="continueEntries.length > 0" class="continue-row">
         <h2 class="continue-heading">继续阅读</h2>
         <div class="scroller">
@@ -109,6 +118,24 @@ function continueReadingNode(entry: ContinueReadingEntry) {
 </template>
 
 <style scoped>
+.browse-link-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.browse-link {
+  color: var(--dim);
+  font-size: var(--step--1);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.browse-link:hover {
+  color: var(--accent);
+}
+
 .continue-row {
   margin-bottom: var(--space-6);
 }

@@ -72,8 +72,15 @@ function enterDelay(index: number): string {
     <ErrorState v-else-if="status === 'error'" :error="error" :onRetry="load" />
 
     <template v-else>
-      <div v-if="browseLibraryId != null" class="browse-link-row">
-        <RouterLink :to="{ name: 'video-browse', query: { libraryId: browseLibraryId } }" class="browse-link">
+      <div class="browse-link-row">
+        <RouterLink :to="{ name: 'favorites' }" class="browse-link">
+          我的收藏
+        </RouterLink>
+        <RouterLink
+          v-if="browseLibraryId != null"
+          :to="{ name: 'video-browse', query: { libraryId: browseLibraryId } }"
+          class="browse-link"
+        >
           按目录浏览
         </RouterLink>
       </div>
@@ -111,6 +118,7 @@ function enterDelay(index: number): string {
 .browse-link-row {
   display: flex;
   justify-content: flex-end;
+  gap: var(--space-4);
   margin-bottom: var(--space-3);
 }
 

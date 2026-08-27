@@ -75,6 +75,34 @@ export interface TaggedTarget {
   coverAssetId: number | null
 }
 
+/**
+ * 对应后端 `GET /api/video/favorites` 直接序列化的 VideoItem 实体（VideoItem.java 的
+ * getId/getTitle/getCoverAssetId）。结构上与 VideoCard 的局部 VideoCardItem 类型一致，
+ * 可以直接喂给 <VideoCard :item="entry">，不需要映射。
+ */
+export interface VideoFavoriteEntry {
+  id: number
+  title: string
+  coverAssetId: number | null
+}
+
+/**
+ * 对应后端 `GET /api/image/favorites` 直接序列化的 ImageNode 实体（ImageNode.java 的
+ * getId/getDisplayName/getCoverAssetId/isReadable/isBrowsable/getTotalPageCount/
+ * getChildNodeCount）。收藏可以是文件夹（image_favorite 允许收藏任意节点），所以
+ * readable/browsable 都是真实值，不是占位。结构上与 BookCard 的局部 BookCardNode
+ * 类型一致，可以直接喂给 <BookCard :node="entry">，不需要映射。
+ */
+export interface ImageFavoriteEntry {
+  id: number
+  displayName: string
+  coverAssetId: number | null
+  readable: boolean
+  browsable: boolean
+  totalPageCount: number
+  childNodeCount: number
+}
+
 /** 对应后端 ShareLinkDto.Response——两个域的创建端点共用同一份响应形状。 */
 export interface ShareLink {
   id: number
