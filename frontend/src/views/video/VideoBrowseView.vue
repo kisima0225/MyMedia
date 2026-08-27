@@ -100,7 +100,16 @@ const crumbs = computed(() => {
 <template>
   <div class="video-browse">
     <template v-if="selectedLibraryId == null">
-      <div class="empty-wrap">
+      <!-- 只有 init() 里的 librariesStore.load() 落地成功、且确实一个视频库都没有时，
+      才是"零个视频库"空态。挂载后到那之前 status 还是 loading，load() 失败时 status
+      是 error——两种情况都不能落到这个分支，否则加载中/报错会被误判成零库。 -->
+      <div v-if="status === 'loading'" class="skeleton-wrap">
+        <div v-for="n in 4" :key="n" class="skeleton-row" />
+      </div>
+
+      <ErrorState v-else-if="status === 'error'" :error="error" :onRetry="init" />
+
+      <div v-else class="empty-wrap">
         <EmptyState title="没有可浏览的视频库" hint="去『媒体库管理』创建一个视频库" />
         <RouterLink v-if="auth.isAdmin" :to="{ name: 'admin-libraries' }" class="jump">
           去媒体库管理
