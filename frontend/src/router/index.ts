@@ -1,4 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { hasCredential } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 
 /**
  * 路由的 meta.domain 决定外壳给 <body> 设哪个 data-domain，
@@ -54,4 +56,22 @@ export const router = createRouter({
   history: createWebHistory(),
   routes,
   scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 },
+})
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (!auth.user && hasCredential()) {
+    await auth.restore()
+  }
+  if (to.meta.anonymous) {
+    return true
+  }
+  if (!auth.user) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.meta.admin && !auth.isAdmin) {
+    // 不是 ADMIN 就当这个页面不存在——与后端「404 而非 403」同一条规矩
+    return { name: 'video-home' }
+  }
+  return true
 })
