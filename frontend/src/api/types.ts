@@ -1,8 +1,10 @@
 export interface Me { userId: number; username: string; displayName: string; role: 'ADMIN' | 'USER' }
 export interface VideoItemSummary {
   id: number; title: string; itemType: 'MOVIE' | 'SERIES' | 'SINGLE_VIDEO' | 'VIDEO_SERIES'
-  structure: 'FLAT' | 'GROUPED'; coverAssetId: number | null
+  structure: 'FLAT' | 'GROUPED'; coverAssetId: number | null; libraryId: number
 }
+/** 对应后端 VideoCatalogDto.GroupSummary——GROUPED 结构（如番剧的季）里的一个分组。 */
+export interface VideoGroupSummary { id: number; groupIndex: number; name: string }
 export interface VideoFileSummary {
   id: number; role: 'PRIMARY' | 'VERSION' | 'EXTRA' | 'SUBTITLE' | 'TRAILER'
   episodeIndex: number | null; durationSeconds: number | null
