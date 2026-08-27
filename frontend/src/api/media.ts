@@ -1,5 +1,5 @@
 import { TicketCache } from './ticket'
-import { apiSend } from './client'
+import { apiSend, hasCredential } from './client'
 
 /** 把票据挂到 URL 上。票据只在三条只读媒体路径上有效，见后端 ADR-008。 */
 export function withTicket(path: string, ticket: string): string {
@@ -39,12 +39,29 @@ export async function assetUrlAsync(assetId: number): Promise<string> {
  * 由 <Cover> 渲染占位，票据到手后响应式地补上。
  */
 let latest = ''
-void cache.get().then((t) => { latest = t }).catch(() => {
-  // 未登录（尚未签过任何票据）或网络抖动时静默失败：assetUrl() 继续返回空串，
-  // 由 <Cover> 渲染占位；不吞掉这个 catch 会在每次未登录时的应用加载中
-  // 留下一个未处理的 promise rejection——这里只是补上出口，不改变签发本身的
-  // 成功/失败语义（TicketCache 自己的失败-不缓存行为不受影响）。
-})
+// 只在已有凭证时才预取：匿名启动（比如刚打开 /login，或从深链被守卫拦下之前
+// 那一瞬间）不该打一次注定 401 的 /api/auth/media-ticket——那个 401 会经
+// client.ts 的 unauthorizedHandler 触发一次裸的 router.push({ name: 'login' })，
+// 时机上可能晚于守卫已经算好的、带 redirect 查询参数的跳转，把它覆盖掉。
+//
+// hasCredential() 本身包了一层 try/catch：读取 sessionStorage 在真实浏览器里
+// 也不保证总是安全（存储被用户禁用、被沙箱化的 iframe 会直接抛 SecurityError），
+// 不是只有测试环境缺 sessionStorage 这一种情况；读取失败就按「没有凭证」处理，
+// 反正那种情况下本来就该跳过预取。
+let shouldPrefetch = false
+try {
+  shouldPrefetch = hasCredential()
+} catch {
+  shouldPrefetch = false
+}
+if (shouldPrefetch) {
+  void cache.get().then((t) => { latest = t }).catch((err) => {
+    // 网络抖动等真实失败不该被吞掉：assetUrl() 会继续返回空串、<Cover> 渲染
+    // 占位，功能上不受影响，但留一条日志方便定位「明明登录了却一直没有封面」
+    // 这类问题。
+    console.warn('媒体票据预取失败', err)
+  })
+}
 export function assetUrl(assetId: number): string {
   return latest ? withTicket(`/api/assets/${assetId}`, latest) : ''
 }

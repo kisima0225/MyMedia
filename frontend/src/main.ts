@@ -18,7 +18,10 @@ app.use(router)
 const auth = useAuthStore()
 setUnauthorizedHandler(() => {
   auth.logout()
-  router.push({ name: 'login' })
+  router.push({ name: 'login' }).catch(() => {
+    // 导航被中断（比如已经在跳转别的地方）是正常竞态，不该冒泡成一条
+    // 未处理的 promise rejection。
+  })
 })
 
 app.mount('#app')
