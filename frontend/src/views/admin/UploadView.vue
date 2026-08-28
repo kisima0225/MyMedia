@@ -88,18 +88,29 @@ onMounted(async () => {
 
   const stored = readStoredSession()
   if (!stored) return
-  resumeCandidate.value = stored
+
   try {
     const info = await getUploadSession(stored.sessionId)
     if (info.status === 'RECEIVING') {
+      resumeCandidate.value = stored
       resumeSessionInfo.value = info
       selectedLibraryId.value = stored.targetLibraryId
+    } else if (info.status === 'ASSEMBLING') {
+      // 分片已经全部传完、服务端正在合并——这个阶段不需要文件本身，不用等用户
+      // 重新选择文件才能继续。直接进度轮询区，而不是显示"请重新选择同一个文件"
+      // 的续传横幅（那句提示在这个阶段不适用，会误导用户以为还需要再选一次文件）。
+      // pollUntilAssembled 自己有有界重试与错误处理，这里不需要再包一层 try/catch。
+      selectedLibraryId.value = stored.targetLibraryId
+      session.value = info
+      uploadedIndices.value = new Set(info.receivedChunks)
+      phase.value = 'assembling'
+      await pollUntilAssembled(stored.sessionId)
     } else {
       // 已经完成或失败：本地记录过期了，不再提示续传
       clearStoredSession()
     }
   } catch {
-    // 会话已经不存在（比如换了一台服务器），清掉本地的脏记录
+    // 查询会话本身失败（比如换了一台服务器、会话已经不存在），清掉本地的脏记录
     clearStoredSession()
   }
 })
@@ -204,10 +215,37 @@ async function uploadWithConcurrency(
   if (failure) throw failure
 }
 
-/** 分片到齐后后端异步合并（走任务队列），轮询直到 COMPLETED / FAILED。 */
+/**
+ * 分片到齐后后端异步合并（走任务队列），轮询直到 COMPLETED / FAILED。
+ *
+ * 轮询本身也可能失败（网络抖动、后端短暂重启）——给 `getUploadSession` 一次
+ * 有界重试，和分片上传同一套纪律（3 次、退避 1s/2s/4s），而不是让一次瞬时的
+ * 网络错误就变成一个未捕获的 promise rejection，把 phase 永远卡在 'assembling'
+ * 且界面上什么提示都没有。重试耗尽后**在这个函数内部**直接把状态落成用户能
+ * 看见的错误，而不是把异常抛给调用方——调用方（`runUpload`/`onMounted` 的续传
+ * 分支）因此不需要去猜"这个异常到底是合并阶段失败、还是创建会话/续传前置步骤
+ * 失败"：这个函数自己对自己的失败负责，调用方看到的永远是"这个函数正常返回"。
+ */
 async function pollUntilAssembled(sessionId: number): Promise<void> {
+  let consecutiveFailures = 0
   for (;;) {
-    const current = await getUploadSession(sessionId)
+    let current: UploadSession
+    try {
+      current = await getUploadSession(sessionId)
+      consecutiveFailures = 0
+    } catch (err) {
+      if (consecutiveFailures >= RETRY_DELAYS_MS.length) {
+        phase.value = 'error'
+        errorMessage.value = err instanceof ApiError
+          ? err.message
+          : '查询合并进度失败，请刷新页面重试（分片已经全部传完，服务端很可能仍在正常合并）。'
+        return
+      }
+      await sleep(RETRY_DELAYS_MS[consecutiveFailures])
+      consecutiveFailures += 1
+      continue
+    }
+
     session.value = current
     if (current.status === 'COMPLETED') {
       phase.value = 'done'
@@ -258,15 +296,24 @@ async function startUpload(): Promise<void> {
   if (resumeSessionInfo.value && resumeCandidate.value
       && resumeCandidate.value.filename === targetFile.name
       && resumeCandidate.value.totalSize === targetFile.size) {
-    phase.value = 'hashing'
-    const hash = await sampledHash(targetFile)
-    if (hash !== resumeCandidate.value.contentHash) {
-      phase.value = 'idle'
-      errorMessage.value = '这个文件的内容与上次记录的不同，无法续传该会话。'
-        + '请点击上方"放弃并重新开始"，或重新选择原来的文件。'
-      return
+    // 与下面"全新上传"分支同一套 try/catch 纪律：任何一步（算哈希、续传上传本身）
+    // 出错都要落地成用户能看见的错误状态，而不是变成一个未捕获的 promise
+    // rejection、把 phase 永远卡在某个中间态（review 意见——续传路径此前完全
+    // 没有包 try/catch）。
+    try {
+      phase.value = 'hashing'
+      const hash = await sampledHash(targetFile)
+      if (hash !== resumeCandidate.value.contentHash) {
+        phase.value = 'idle'
+        errorMessage.value = '这个文件的内容与上次记录的不同，无法续传该会话。'
+          + '请点击上方"放弃并重新开始"，或重新选择原来的文件。'
+        return
+      }
+      await runUpload(targetFile, resumeSessionInfo.value)
+    } catch (err) {
+      phase.value = 'error'
+      errorMessage.value = err instanceof ApiError ? err.message : '续传失败，请重试。'
     }
-    await runUpload(targetFile, resumeSessionInfo.value)
     return
   }
 
