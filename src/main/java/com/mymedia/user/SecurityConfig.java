@@ -34,8 +34,13 @@ class SecurityConfig {
                         // 静态资源与前端路由整段放行：登录页本身就是静态资源，
                         // 要求登录才能拿到登录页是个死循环。真正的数据全在 /api 下，
                         // 那里仍然 anyRequest().authenticated()。
+                        // favicon 两个都放行：index.html 引用的是 /favicon.svg
+                        // （frontend/public/favicon.svg），/favicon.ico 是浏览器在
+                        // 没有 <link rel=icon> 时的默认探测路径。浏览器取图标的请求
+                        // 不带 Authorization 头，漏掉哪个，每个页面（包括匿名的登录页
+                        // 与分享页）都会多打一次注定 401 的请求。
                         .requestMatchers(HttpMethod.GET,
-                                "/", "/index.html", "/favicon.ico", "/assets/**",
+                                "/", "/index.html", "/favicon.svg", "/favicon.ico", "/assets/**",
                                 "/video/**", "/image/**", "/search", "/favorites",
                                 "/tags/**", "/admin/**", "/s/**", "/login")
                         .permitAll()

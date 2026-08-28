@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -66,5 +67,24 @@ class SpaRoutingTest extends AbstractIntegrationTest {
     void 静态资源不需要登录() throws Exception {
         // 登录页本身就是静态资源，要求登录才能拿到登录页是个死循环
         mockMvc.perform(get("/")).andExpect(status().isOk());
+    }
+
+    @Test
+    void favicon_不需要登录() throws Exception {
+        // index.html 用 <link rel="icon" href="/favicon.svg"> 引用它，而浏览器取图标的
+        // 请求不带 Authorization 头。不在 SecurityConfig 的白名单里，这个请求就会撞上
+        // anyRequest().authenticated() 变成 401——每个页面（包括匿名的登录页与分享页）
+        // 都白打一次失败请求。
+        //
+        // 断言的是「不是 401」而不是 200：favicon.svg 来自前端构建产物
+        // （frontend/public → frontend/dist → target/classes/static），
+        // -DskipFrontend=true 时它不存在，那时 404 才是正确答案。这条要钉住的是
+        // 安全白名单，不是构建产物在不在。
+        for (String path : new String[]{"/favicon.svg", "/favicon.ico"}) {
+            mockMvc.perform(get(path))
+                    .andExpect(result -> assertThat(result.getResponse().getStatus())
+                            .as("GET %s 不该要求登录", path)
+                            .isNotEqualTo(401));
+        }
     }
 }
