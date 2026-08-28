@@ -33,12 +33,21 @@ const libraries = ref<Library[]>([])
 
 /**
  * 每个库的刮削器列表，按 id 存。undefined = 还没查到（加载中），
- * 'error' = 查询失败，string[] = 查到的结果（空数组表示"不刮削"）。
+ * 'load-error' = 查询这个库当前配置失败，'set-error' = 建库后紧接着设置刮削器
+ * 那一步失败了（库本身已经真实建成，只是这一步没成功——见 submitCreate()
+ * 的注释，这两种失败不能用同一个状态表示，否则用户分不清是"查不到"还是
+ * "建库时没配上"），string[] = 查到的结果（空数组表示"不刮削"）。
  * GET /api/libraries 没有条目数字段，也没有能一次性带出刮削器配置的字段
  * （已读 LibraryDto.java 源码核对），所以逐库另发一次
  * GET /api/libraries/{id}/metadata-providers——库的数量通常很小，这个代价是合理的。
  */
-const providersByLibrary = ref<Record<number, string[] | 'error'>>({})
+const providersByLibrary = ref<Record<number, string[] | 'load-error' | 'set-error'>>({})
+
+/**
+ * 'set-error' 发生时，记下当时想设置的刮削器列表，供该行的"重试"按钮
+ * （retryProviderSet）原样重新提交，不需要用户重新填一遍。
+ */
+const pendingProviders = ref<Record<number, string[]>>({})
 
 type ScanState = 'idle' | 'starting' | 'started' | 'error'
 const scanState = reactive<Record<number, ScanState>>({})
@@ -62,21 +71,36 @@ async function loadAllProviders(): Promise<void> {
   const results = await Promise.allSettled(targets.map((lib) => metadataProviders(lib.id)))
   results.forEach((result, index) => {
     const lib = targets[index]
-    providersByLibrary.value[lib.id] = result.status === 'fulfilled' ? result.value : 'error'
+    providersByLibrary.value[lib.id] = result.status === 'fulfilled' ? result.value : 'load-error'
   })
 }
 
 function providerCellText(id: number): string {
   const entry = providersByLibrary.value[id]
   if (entry === undefined) return '加载中…'
-  if (entry === 'error') return '加载失败'
+  if (entry === 'load-error') return '加载失败'
+  if (entry === 'set-error') return '设置失败'
   if (entry.length === 0) return '不刮削'
   return entry.join('、')
 }
 
 function providerCellDim(id: number): boolean {
   const entry = providersByLibrary.value[id]
-  return entry === undefined || entry === 'error' || entry.length === 0
+  return entry === undefined || entry === 'load-error' || entry === 'set-error' || entry.length === 0
+}
+
+/** 'set-error' 那一行的"重试"：原样重新提交当时记下的刮削器列表。 */
+async function retryProviderSet(id: number): Promise<void> {
+  const providers = pendingProviders.value[id]
+  if (!providers) return
+  try {
+    const saved = await setMetadataProviders(id, providers)
+    providersByLibrary.value[id] = saved
+    delete pendingProviders.value[id]
+  } catch {
+    providersByLibrary.value[id] = 'set-error'
+    // 保留 pendingProviders[id]，允许再次点"重试"。
+  }
 }
 
 const SCAN_LABEL: Record<ScanState, string> = {
@@ -137,6 +161,15 @@ function toggleProvider(name: string, checked: boolean): void {
  * 建库是两步：LibraryDto.CreateRequest 只有 name/domain/rootPath 三个字段，不含
  * 刮削器（已读 LibraryDto.java 源码核对）。刮削器多选框提交时先调 createLibrary
  * 拿新库 id，再紧接着调一次 setMetadataProviders(newId, providers)。
+ *
+ * 这两步刻意拆成两个独立的 try/catch，不共用一个：第一步一旦成功，库就是真实
+ * 存在的资源（已经 push 进 libraries.value、显示在表格里）——如果这时候第二步
+ * 失败，绝不能用同一句"创建媒体库失败，请重试"去提示用户，那会诱导用户重新
+ * 提交同一份表单。全仓库没有任何 `DELETE /api/libraries/{id}` 端点（已用 grep
+ * 核实），重新提交会建出一个界面和 API 都无法删除的重复库，是不可逆的脏状态。
+ * 第二步失败时：明确提示库已建成、不要重复创建；表单不清空（用户至少能看到
+ * 自己刚选的刮削器，方便核对/重试）；刮削器单元格显式标成 'set-error'（不是
+ * 让它停在"加载中…"自己骗自己），并留一个"重试"按钮原样重新提交。
  */
 async function submitCreate(): Promise<void> {
   if (creating.value) return
@@ -146,27 +179,41 @@ async function submitCreate(): Promise<void> {
 
   creating.value = true
   createError.value = null
+
+  let created: Library
   try {
     const payload: CreateLibraryPayload = { name, domain: form.domain, rootPath }
-    const created = await createLibrary(payload)
+    created = await createLibrary(payload)
     libraries.value.push(created)
-
-    if (form.providers.length > 0) {
-      const saved = await setMetadataProviders(created.id, form.providers)
-      providersByLibrary.value[created.id] = saved
-    } else {
-      providersByLibrary.value[created.id] = []
-    }
-
-    form.name = ''
-    form.rootPath = ''
-    form.providers = []
-    form.domain = 'VIDEO'
   } catch (err) {
     createError.value = err instanceof ApiError ? err.message : '创建媒体库失败，请重试。'
-  } finally {
     creating.value = false
+    return
   }
+
+  if (form.providers.length > 0) {
+    try {
+      const saved = await setMetadataProviders(created.id, form.providers)
+      providersByLibrary.value[created.id] = saved
+    } catch (err) {
+      const detail = err instanceof ApiError ? err.message : '请求失败'
+      providersByLibrary.value[created.id] = 'set-error'
+      pendingProviders.value[created.id] = [...form.providers]
+      createError.value =
+        `媒体库"${created.name}"已经创建成功，请勿重复提交。但刮削器设置失败：${detail}——` +
+        '可以在下方表格该库这一行的"刮削器"列点"重试"。'
+      creating.value = false
+      return
+    }
+  } else {
+    providersByLibrary.value[created.id] = []
+  }
+
+  form.name = ''
+  form.rootPath = ''
+  form.providers = []
+  form.domain = 'VIDEO'
+  creating.value = false
 }
 
 // ── 分享链接管理 ──
@@ -262,7 +309,17 @@ onMounted(() => {
                   </span>
                 </td>
                 <td class="mono">{{ lib.rootPath }}</td>
-                <td :class="{ dim: providerCellDim(lib.id) }">{{ providerCellText(lib.id) }}</td>
+                <td :class="{ dim: providerCellDim(lib.id) }">
+                  {{ providerCellText(lib.id) }}
+                  <button
+                    v-if="providersByLibrary[lib.id] === 'set-error'"
+                    type="button"
+                    class="retry-inline"
+                    @click="retryProviderSet(lib.id)"
+                  >
+                    重试
+                  </button>
+                </td>
                 <td>{{ lib.enabled ? '启用' : '停用' }}</td>
                 <td>
                   <button
@@ -508,6 +565,19 @@ onMounted(() => {
 
 .error-text {
   color: #d98a78;
+}
+
+.retry-inline {
+  margin-left: var(--space-2);
+  padding: 1px var(--space-2);
+  border: 1px solid #b5533f;
+  border-radius: var(--radius);
+  background: transparent;
+  color: #d98a78;
+  font-family: var(--font-body);
+  font-size: var(--step--1);
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .skeleton-rows {
