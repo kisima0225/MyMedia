@@ -10,6 +10,12 @@ const props = defineProps<{
   /** 后端 PageSummary 给的原始尺寸，只用来算占位块的长宽比——不参与实际渲染。 */
   width: number | null
   height: number | null
+  /**
+   * 提供时直接当 src 用，跳过内部的 mediaUrl() 调用——分享页（ShareView）用它
+   * 传一个不带票据的公开地址（分享访客没有认证域的媒体票据）。不提供时
+   * 保持现状，走认证域的 mediaUrl()。纯加法，不影响既有调用方。
+   */
+  srcOverride?: string
 }>()
 
 const src = ref('')
@@ -20,7 +26,7 @@ const loaded = ref(false)
 async function load(): Promise<void> {
   loaded.value = false
   src.value = ''
-  src.value = await mediaUrl(`/api/image/page/${props.fileId}`)
+  src.value = props.srcOverride ?? await mediaUrl(`/api/image/page/${props.fileId}`)
 }
 
 onMounted(load)
