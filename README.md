@@ -42,6 +42,37 @@ curl -s -u admin:admin -X POST http://localhost:8080/api/libraries \
 
 PowerShell 调用 `curl.exe` 时，需要保留 JSON 属性引号；单引号字符串不需要反斜杠转义，可以使用 `'{"name":"电影","domain":"VIDEO","rootPath":"/media/movies"}'` 作为 `-d` 参数。
 
+登录后访问 `http://localhost:8080/` 即可使用浏览器前端（首次使用先在「媒体库管理」页建一个媒体库并点「开始扫描」）。
+
+### 前端开发模式
+
+`mvn spring-boot:run`/`mvn package` 会自动下载 Node、跑 `npm ci`/`npm run build`，把 Vite 构建产物拷进 `target/classes/static/` 随 jar 一起交付——只做后端迭代、不改前端时，加上 `-DskipFrontend=true` 跳过这一段，节省每次构建的时间：
+
+```bash
+mvn -B -ntp spring-boot:run -DskipFrontend=true
+```
+
+前端本身开发时可以用 Vite 的开发服务器（带热重载），不需要每次改动都跑一遍后端构建：
+
+```bash
+cd frontend
+npm run dev
+```
+
+Vite 开发服务器默认监听 `5173`，会把 `/api/**` 请求代理到本机 `8080`（后端需要已经用上面的方式单独启动）。前端依赖精确锁定版本（不写 `^`/`~`），提交了 `package-lock.json`；TypeScript 必须是 `6.0.3`，`typescript@latest`（`7.x`，Go 原生重写版）与本项目用的 `vue-tsc` 不兼容，详见 [前端 walkthrough](docs/walkthrough/07-前端.md#31-typescript-603-必须锁死不能用-latest)。
+
+### 界面预览
+
+浏览器前端把两个域做成两套视觉语言——视频发光、图片反光，具体设计定稿见
+[计划 07 前端设计定稿](docs/superpowers/plans/2026-08-17-00-总览与交接.md)（§13.5）。
+本环境暂无浏览器自动化能力，无法附真实截图，先用文字描述四个最能体现设计的界面，
+截图待后续有真实浏览器环境时补充：
+
+- **视频首页**：冷色调（`#08090e`）背景，卡片用彩色琥珀外发光（`#ffb020`）标示当前正在播放的媒体域；继续观看横向滚动一行。
+- **播放器**：原生 `<video>` + 自定义控制条，悬停进度条时从雪碧图（100 帧 + WebVTT）里换算出对应时刻的画面浮出显示，零额外网络请求。
+- **图片首页**：暖色调（`#12100d`）背景，书卡左缘 4px 亮—暗—亮渐变书脊，CSS 多列瀑布流按封面原始比例排布，不裁切。
+- **阅读器**：整个应用唯一的亮面——满幅纸色（`#f2ede3`）背景，chrome 全部隐藏，双页模式下按 `rtl`/`ltr` 自动镜像翻页方向。
+
 ## 架构
 
 这是一个模块化单体，而不是按服务拆分的微服务。顶层包就是模块，当前由 `shared`、`user`、`library`、`jobs`、`scan` 五个模块组成；实现类和 repository 默认保持 package-private，跨模块只依赖公开 API。`ApplicationModules.verify()` 在测试阶段强制依赖边界，`Documenter` 自动生成模块图和 AsciiDoc 说明。
