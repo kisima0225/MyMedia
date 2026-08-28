@@ -157,4 +157,67 @@ export interface VideoSearchHit {
   score: number
 }
 
-// 其余（上传会话、刮削候选）在用到它们的任务里补，每个都注明对应的后端 record。
+/**
+ * 对应后端 UploadDto.Response(Long id, String status, boolean instant, String filename,
+ * long totalSize, int chunkSize, int totalChunks, List<Integer> receivedChunks,
+ * Long scannedFileId, String relativePath, String lastError, Instant completedAt)。
+ *
+ * **`chunkSize` 由服务端按 `mymedia.upload.chunk-size` 算好下发**——前端切片必须用这个值，
+ * 不能自己定义常量，否则分片边界和服务端的 totalChunks/校验对不上（preflight 裁决 R30，
+ * 已读 UploadSessionService.create 源码核对）。
+ */
+export interface UploadSession {
+  id: number
+  status: 'RECEIVING' | 'ASSEMBLING' | 'COMPLETED' | 'FAILED'
+  instant: boolean
+  filename: string
+  totalSize: number
+  chunkSize: number
+  totalChunks: number
+  receivedChunks: number[]
+  scannedFileId: number | null
+  relativePath: string | null
+  lastError: string | null
+  completedAt: string | null
+}
+
+/** 对应后端 MetadataDto.CandidateResponse(Long id, String provider, String externalId, String title, Integer year, double score)。 */
+export interface ScrapeCandidate {
+  id: number
+  provider: string
+  externalId: string
+  title: string
+  year: number | null
+  score: number
+}
+
+/**
+ * 对应后端 MetadataDto.QueueEntry(LibraryDomain domain, Long targetId, String title,
+ * Long coverAssetId, List<CandidateResponse> candidates)——这是新增端点
+ * `GET /api/scrape/queue` 的响应元素（preflight 裁决 R31：既有的
+ * `/candidates?domain=&targetId=` 只能查单个目标，没有"全局待确认队列"这回事，
+ * 端点是本任务新加的）。
+ */
+export interface ScrapeQueueEntry {
+  domain: 'VIDEO' | 'IMAGE'
+  targetId: number
+  title: string
+  coverAssetId: number | null
+  candidates: ScrapeCandidate[]
+}
+
+/**
+ * 对应后端 MetadataDto.Response(Map<String,String> fields, Map<String,String> fieldSources,
+ * Set<String> lockedFields, String scrapeStatus, String scrapeSource, String scrapeSourceId)。
+ * `fieldSources`/`scrapeSource` 的取值是 `LocalNfo`/`Bangumi`/`TMDB`/`Filename`/`USER`
+ * 这五个精确字符串之一（preflight 裁决 R35，大小写与 brief 原文不同，已读四个
+ * MetadataProvider 的 NAME 常量与两处 applyUserEdit 写入代码核对）。
+ */
+export interface MetadataSnapshot {
+  fields: Record<string, string>
+  fieldSources: Record<string, string>
+  lockedFields: string[]
+  scrapeStatus: 'NOT_APPLICABLE' | 'PENDING' | 'MATCHED' | 'NO_MATCH' | 'NEEDS_REVIEW' | 'ERROR'
+  scrapeSource: string | null
+  scrapeSourceId: string | null
+}

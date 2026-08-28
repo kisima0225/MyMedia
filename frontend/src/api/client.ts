@@ -73,3 +73,26 @@ async function errorMessage(response: Response): Promise<string> {
 export const apiGet = <T>(path: string) => request<T>('GET', path)
 export const apiSend = <T>(method: string, path: string, body?: unknown) =>
   request<T>(method, path, body)
+
+/**
+ * 发一个二进制分片（上传分片专用）。
+ *
+ * 不能复用 `request()`：那个函数对任何非 undefined 的 body 一律
+ * `JSON.stringify` 并设 `Content-Type: application/json`——用来发分片会把
+ * 二进制切片错误地序列化成字符串 `"{}"`。后端 `PUT .../chunks/{index}`
+ * 要求 `Content-Type: application/octet-stream` 且请求体是原始字节
+ * （`UploadController.putChunk` 直接从 `HttpServletRequest.getInputStream()`
+ * 流式读取），所以这里单独实现，只复刻 Basic 头拼接与 401 处理逻辑。
+ */
+export async function putBinary(path: string, body: Blob): Promise<void> {
+  const credential = sessionStorage.getItem(CREDENTIAL_KEY)
+  const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
+  if (credential) headers.Authorization = `Basic ${credential}`
+
+  const response = await fetch(path, { method: 'PUT', headers, body })
+
+  if (!response.ok) {
+    if (response.status === 401) unauthorizedHandler?.()
+    throw new ApiError(response.status, await errorMessage(response))
+  }
+}
