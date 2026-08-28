@@ -32,6 +32,12 @@ mymedia:
   admin:
     username: admin
     password: admin      # 仅用于本地演示，生产部署必须通过环境变量覆盖
+  auth:
+    # 媒体票据的签名密钥。留空则每次启动随机生成——这里随机是**正确默认**：
+    # 票据 15 分钟就过期且前端会自动续签，重启的最坏结果是前端多取一次票据。
+    # （对比 mymedia.share.secret：那里留空会让带密码的分享链接在重启后要求访客重输密码。）
+    media-ticket-secret: ""
+    media-ticket-ttl: PT15M
   jobs:
     enabled: true            # 生产默认启用；集成测试基类显式关闭
     poll-interval: PT5S      # 轮询间隔

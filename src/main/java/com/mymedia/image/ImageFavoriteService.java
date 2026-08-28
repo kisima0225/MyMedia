@@ -1,5 +1,6 @@
 package com.mymedia.image;
 
+import com.mymedia.library.LibraryAccessService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,10 +22,13 @@ public class ImageFavoriteService {
 
     private final ImageFavoriteRepository repository;
     private final ImageCatalogService catalogService;
+    private final LibraryAccessService accessService;
 
-    ImageFavoriteService(ImageFavoriteRepository repository, ImageCatalogService catalogService) {
+    ImageFavoriteService(ImageFavoriteRepository repository, ImageCatalogService catalogService,
+                         LibraryAccessService accessService) {
         this.repository = repository;
         this.catalogService = catalogService;
+        this.accessService = accessService;
     }
 
     @Transactional
@@ -49,12 +53,19 @@ public class ImageFavoriteService {
         return repository.existsById(new ImageFavorite.Key(userId, nodeId));
     }
 
-    /** 收藏的节点，最近加入的在前。 */
+    /**
+     * 收藏的节点，最近加入的在前。
+     *
+     * <p>按当前用户的库访问权过滤——媒体库的访问权被撤销之后，收藏列表不应该
+     * 还在展示那个库里节点的标题与封面（总览 §5 G24）。
+     */
     @Transactional(readOnly = true)
     public List<ImageNode> listNodes(Long userId, int limit) {
         List<Long> nodeIds = repository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, limit)).stream()
                 .map(ImageFavorite::getImageNodeId)
                 .toList();
-        return catalogService.findByIds(nodeIds);
+        return catalogService.findByIds(nodeIds).stream()
+                .filter(node -> accessService.canAccess(userId, node.getLibraryId()))
+                .toList();
     }
 }

@@ -27,3 +27,9 @@ uploads/
 
 # superpowers SDD 工作区：子 agent 的简报/报告/账本，属于草稿
 .superpowers/
+
+# 前端
+/.frontend-toolchain/
+/frontend/node_modules/
+/frontend/dist/
+/frontend/*.log

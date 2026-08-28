@@ -85,6 +85,21 @@ public class ScrapeCandidateService {
         updateStatus(domain, targetId, ScrapeStatus.NO_MATCH);
     }
 
+    /**
+     * 全局待确认队列涉及的全部目标（去重）。不做访问权过滤——那需要知道每个目标
+     * 所属的媒体库，调用方（web 层）已经注入了 VideoCatalogService/ImageCatalogService，
+     * 由它按目标查库、再对照 LibraryAccessService，这里只负责"有哪些目标"。
+     */
+    @Transactional(readOnly = true)
+    public List<PendingTarget> pendingTargets() {
+        return store.distinctTargets().stream()
+                .map(ref -> new PendingTarget(ref.domain(), ref.targetId()))
+                .toList();
+    }
+
+    public record PendingTarget(LibraryDomain domain, Long targetId) {
+    }
+
     private void attachCollection(LibraryDomain domain, Long targetId, MetadataPatch patch) {
         if (domain != LibraryDomain.VIDEO || patch == null) {
             return;

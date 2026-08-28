@@ -1,8 +1,10 @@
 package com.mymedia.metadata.web;
 
+import com.mymedia.library.LibraryDomain;
 import com.mymedia.shared.MetadataSnapshot;
 import jakarta.validation.constraints.NotNull;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -45,5 +47,10 @@ final class MetadataDto {
             return new CandidateResponse(record.id(), record.provider(), record.externalId(),
                     record.title(), record.year(), record.score());
         }
+    }
+
+    /** 全局待确认队列的一条：一个待确认目标，连同它当前的全部候选。 */
+    record QueueEntry(LibraryDomain domain, Long targetId, String title, Long coverAssetId,
+                       List<CandidateResponse> candidates) {
     }
 }

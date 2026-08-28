@@ -16,6 +16,9 @@ public final class ImageNodeDto {
      * <p>{@code readable} 与 {@code browsable} 是<b>两个独立的布尔值</b>，
      * 不是一个 type 字段——一个目录既有散图又有子目录时两者同时为真，
      * 前端据此同时渲染「阅读」与「进入」两个入口。
+     *
+     * <p>{@code libraryId} 供前端首页按媒体库分段展示——没有这个分量，
+     * 前端就得为每个节点再发一次请求去问它属于哪个库。
      */
     public record NodeSummary(
             Long id,
@@ -28,14 +31,17 @@ public final class ImageNodeDto {
             int childNodeCount,
             int totalPageCount,
             boolean readable,
-            boolean browsable) {
+            boolean browsable,
+            Long coverAssetId,
+            Long libraryId) {
 
         public static NodeSummary from(ImageNode node) {
             return new NodeSummary(
                     node.getId(), node.getName(), node.getDisplayName(), node.getDepth(),
                     node.getSourceKind().name(), node.getReadingMode().name(),
                     node.getDirectPageCount(), node.getChildNodeCount(), node.getTotalPageCount(),
-                    node.isReadable(), node.isBrowsable());
+                    node.isReadable(), node.isBrowsable(),
+                    node.getCoverAssetId(), node.getLibraryId());
         }
     }
 

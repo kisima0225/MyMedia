@@ -43,11 +43,10 @@ class VideoProgressController {
     }
 
     @GetMapping("/continue-watching")
-    List<ProgressResponse> continueWatching(@AuthenticationPrincipal UserDetails principal,
-                                            @RequestParam(defaultValue = "20") int limit) {
-        return progressService.continueWatching(currentUserId(principal), limit).stream()
-                .map(ProgressResponse::from)
-                .toList();
+    List<VideoProgressService.ContinueWatchingEntry> continueWatching(
+            @AuthenticationPrincipal UserDetails principal,
+            @RequestParam(defaultValue = "20") int limit) {
+        return progressService.continueWatching(currentUserId(principal), limit);
     }
 
     private Long currentUserId(UserDetails principal) {

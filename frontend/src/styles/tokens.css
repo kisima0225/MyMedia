@@ -1,0 +1,84 @@
+:root {
+  /* ── 中性外壳：登录页、全局搜索、管理端。不偏向任何一个域 ── */
+  --shell-ground: #0c0d10;
+  --shell-raised: #14161b;
+  --shell-line: #23262e;
+  --shell-text: #e7e9ee;
+  --shell-dim: #8d93a1;
+  --shell-focus: #7fa8ff;
+
+  /* ── 字体栈。CJK 走系统，拉丁自托管 ── */
+  --font-cjk: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC';
+  --font-cjk-serif: 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'SimSun';
+  --font-body: 'IBM Plex Sans', var(--font-cjk), system-ui, sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --font-video-display: 'Archivo', var(--font-cjk), sans-serif;
+  --font-image-display: 'Literata', var(--font-cjk-serif), serif;
+
+  /* ── 字号阶。跨度刻意拉开，中间档少，避免"哪一档都差不多"的糊感 ── */
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+  --step-4: 3.5rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 40px;
+  --space-7: 64px;
+
+  --radius: 4px;
+  --dur-fast: 140ms;
+  --dur-base: 240ms;
+  --ease: cubic-bezier(0.2, 0, 0.1, 1);
+
+  /* 默认取外壳色，两个域各自覆盖 */
+  --ground: var(--shell-ground);
+  --raised: var(--shell-raised);
+  --line: var(--shell-line);
+  --text: var(--shell-text);
+  --dim: var(--shell-dim);
+  --accent: var(--shell-focus);
+  --display: var(--font-body);
+}
+
+/* ══ 视频域：放映室。介质会发光 ══ */
+[data-domain='video'] {
+  --ground: #08090e;      /* 影院的黑不是中性的，屏幕溢光把它染蓝 */
+  --raised: #12141c;
+  --line: #1e2230;
+  --text: #e9ebf2;
+  --dim: #848b9e;
+  --accent: #ffb020;      /* 放映灯与片头倒计时的琥珀 */
+  --accent-dim: #6b4a12;
+  --display: var(--font-video-display);
+  /* 签名：视频卡片"发光"，不是"投影" */
+  --elevation: 0 0 32px -8px rgb(255 176 32 / 0.4);
+}
+
+/* ══ 图片域：阅读桌。介质会反光 ══ */
+[data-domain='image'] {
+  --ground: #12100d;      /* 台灯下纸堆阴影的暖黑 */
+  --raised: #1b1815;
+  --line: #2a2621;
+  --text: #efe9de;
+  --dim: #9a9184;
+  --accent: #c0483a;      /* 印泥的朱，不是霓虹的红 */
+  --accent-dim: #5a251e;
+  --page: #f2ede3;        /* 全应用唯一的亮面。只在阅读器里满幅出现 */
+  --page-ink: #1a1713;
+  --display: var(--font-image-display);
+  /* 签名：图片卡片"投影"，不是"发光" */
+  --elevation: 0 2px 4px rgb(0 0 0 / 0.5), 0 12px 28px -8px rgb(0 0 0 / 0.7);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+  }
+}

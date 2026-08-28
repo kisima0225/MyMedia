@@ -97,6 +97,18 @@ public class VideoCatalogService {
                 .orElseThrow(() -> new NotFoundException("找不到视频文件 id=" + fileId));
     }
 
+    /**
+     * 按 id 批量取文件，<b>不保证顺序</b>——调用方（继续观看）是按进度顺序驱动的，
+     * 文件只是用来查表，不需要像 {@link #findByIds} 那样重排。
+     */
+    @Transactional(readOnly = true)
+    public List<VideoFile> findFilesByIds(Collection<Long> fileIds) {
+        if (fileIds.isEmpty()) {
+            return List.of();
+        }
+        return fileRepository.findAllById(fileIds);
+    }
+
     /** 由 {@code preview} 模块在探测完成后调用，把技术参数写回语义层。 */
     @Transactional
     public void applyProbe(Long videoFileId, VideoProbeData probe) {

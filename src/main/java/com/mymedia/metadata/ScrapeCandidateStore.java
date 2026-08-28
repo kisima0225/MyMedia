@@ -69,6 +69,25 @@ class ScrapeCandidateStore {
                 .orElseThrow(() -> new NotFoundException("找不到刮削候选 id=" + id));
     }
 
+    record TargetRef(LibraryDomain domain, Long targetId) {
+    }
+
+    /**
+     * 全局待确认队列要用的目标去重列表：一个目标可能有多条候选，这里只要目标本身。
+     * {@code scrape_candidate} 表没有 library_id 列，所以只能先拿到 domain+targetId，
+     * 库级别的访问过滤交给调用方（它已经能拿到 VideoCatalogService/ImageCatalogService）。
+     */
+    @Transactional(readOnly = true)
+    List<TargetRef> distinctTargets() {
+        return jdbc.query("SELECT DISTINCT video_item_id, image_node_id FROM scrape_candidate",
+                (rs, rowNum) -> {
+                    Long videoItemId = (Long) rs.getObject("video_item_id");
+                    return videoItemId != null
+                            ? new TargetRef(LibraryDomain.VIDEO, videoItemId)
+                            : new TargetRef(LibraryDomain.IMAGE, rs.getLong("image_node_id"));
+                });
+    }
+
     /** 列名由枚举决定，不是外部输入，拼进 SQL 是安全的。 */
     private static String columnOf(LibraryDomain domain) {
         return domain == LibraryDomain.VIDEO ? "video_item_id" : "image_node_id";

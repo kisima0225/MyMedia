@@ -71,6 +71,46 @@ class ScrapeCandidateController {
         candidateService.ignore(domain, targetId);
     }
 
+    /**
+     * 全局待确认队列：{@code /candidates?domain=&targetId=} 只能查单个目标，
+     * 管理界面需要"当前一共有哪些待确认目标"，所以按目标去重列出，逐个校验访问权
+     * （与 {@link #requireAccess} 同一套 404-而非-403 规矩，只是这里用过滤而不是抛错——
+     * 无权访问的目标直接从列表里消失，不需要让整个队列请求失败）。
+     */
+    @GetMapping("/queue")
+    List<MetadataDto.QueueEntry> queue(@AuthenticationPrincipal UserDetails principal) {
+        Long userId = userQueryService.findByUsername(principal.getUsername())
+                .orElseThrow(() -> new NotFoundException("找不到用户")).getId();
+        return candidateService.pendingTargets().stream()
+                .filter(t -> accessService.canAccess(userId, libraryIdOf(t)))
+                .map(this::toQueueEntry)
+                .toList();
+    }
+
+    private Long libraryIdOf(ScrapeCandidateService.PendingTarget target) {
+        return target.domain() == LibraryDomain.VIDEO
+                ? videoCatalog.getItem(target.targetId()).getLibraryId()
+                : imageCatalog.getNode(target.targetId()).getLibraryId();
+    }
+
+    private MetadataDto.QueueEntry toQueueEntry(ScrapeCandidateService.PendingTarget target) {
+        String title;
+        Long coverAssetId;
+        if (target.domain() == LibraryDomain.VIDEO) {
+            var item = videoCatalog.getItem(target.targetId());
+            title = item.getTitle();
+            coverAssetId = item.getCoverAssetId();
+        } else {
+            var node = imageCatalog.getNode(target.targetId());
+            title = node.getDisplayName();
+            coverAssetId = node.getCoverAssetId();
+        }
+        List<MetadataDto.CandidateResponse> candidates = candidateService
+                .candidatesFor(target.domain(), target.targetId())
+                .stream().map(MetadataDto.CandidateResponse::from).toList();
+        return new MetadataDto.QueueEntry(target.domain(), target.targetId(), title, coverAssetId, candidates);
+    }
+
     private void requireAccess(UserDetails principal, LibraryDomain domain, Long targetId) {
         Long libraryId = domain == LibraryDomain.VIDEO
                 ? videoCatalog.getItem(targetId).getLibraryId()
