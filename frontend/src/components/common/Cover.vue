@@ -8,6 +8,9 @@ const props = defineProps<{
   alt: string
 }>()
 
+// assetUrl() 内部读的是 api/media.ts 里那个响应式的 latestTicket，所以这个
+// computed 同时订阅了它：首屏还没票据时返回空串（渲染占位），票据签发或续签
+// 之后自动重算成带票据的真实 URL，不需要手动刷新页面。
 const src = computed(() => (props.assetId == null ? null : assetUrl(props.assetId)))
 </script>
 
@@ -26,7 +29,10 @@ const src = computed(() => (props.assetId == null ? null : assetUrl(props.assetI
   overflow: hidden;
   border-radius: var(--radius);
   background: var(--raised);
-  box-shadow: var(--elevation);
+  /* --elevation 只在两个域下定义（tokens.css）。<Cover> 在中性页面（/search、
+     /favorites、/tags/:id）也会出现，那里没有 data-domain，不给兜底值这条声明
+     会静默失效、封面失去所有立体感。兜底值与 AppShell 顶栏用的同一个。 */
+  box-shadow: var(--elevation, 0 8px 24px -6px rgb(0 0 0 / 0.5));
 }
 
 .cover img {

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { apiGet, setCredential, clearCredential, hasCredential, ApiError } from '@/api/client'
-import { invalidateTicket } from '@/api/media'
+import { invalidateTicket, refreshTicket } from '@/api/media'
 import type { Me } from '@/api/types'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -16,7 +16,16 @@ export const useAuthStore = defineStore('auth', () => {
     setCredential(username, password)
     try {
       user.value = await apiGet<Me>('/api/auth/me')
+      // 先作废上一个用户可能留下的票据，再立刻为新身份预热一张。
+      //
+      // 预热这一步不能省：assetUrl()（<Cover> 用的同步版本）只能读已经签发过的
+      // 票据，而从 /login 正常登录时 api/media.ts 初始化那会儿还没有凭证、模块内
+      // 那次预取被跳过了。少了这一下，登录后整个页面生命周期里所有封面都是占位图。
+      //
+      // 不 await：登录的完成与否不该被一次媒体票据往返拖住，失败也只是封面暂时
+      // 缺席（refreshTicket 内部已经吞掉异常并记日志）。
       invalidateTicket()
+      void refreshTicket()
     } catch (error) {
       clearCredential()
       user.value = null
