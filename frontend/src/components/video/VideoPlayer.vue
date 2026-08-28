@@ -7,7 +7,7 @@ import { recordProgress } from '@/api/video'
 import type { SpriteCue } from '@/lib/sprite'
 import ScrubBar from './ScrubBar.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   fileId: number
   src: string
   cues: SpriteCue[]
@@ -16,7 +16,21 @@ const props = defineProps<{
   resumePosition: number | null
   prevTarget: RouteLocationRaw | null
   nextTarget: RouteLocationRaw | null
-}>()
+  /**
+   * 要不要上报播放进度。默认 true（登录用户的正常播放页 PlayerView 就走默认值）。
+   *
+   * 分享页（ShareView）必须显式传 false：那里的观众是**匿名访客**，没有任何
+   * 登录凭证，而进度上报打的是认证域端点 PUT /api/video/progress/{fileId}——
+   * 播上几秒、第一次上报就会拿到 401，client.ts 的全局 unauthorizedHandler
+   * 会把访客「登出」并跳去 /login，整段分享体验被一条与访客无关的写请求打断。
+   *
+   * 地址解析那一维（分享页的流地址是免票据的公开路径）与这一维是独立的，
+   * 前者成立不代表这个组件对匿名访客就是安全的。
+   */
+  reportProgress?: boolean
+}>(), {
+  reportProgress: true,
+})
 
 const container = ref<HTMLElement | null>(null)
 const video = ref<HTMLVideoElement | null>(null)
@@ -40,6 +54,19 @@ const report = createThrottle(
   (seconds: number) => void recordProgress(props.fileId, Math.floor(seconds), duration.value || undefined),
   5000,
 )
+
+// 所有上报都必须经这两个包装走，不要在别处直接调 report.call/report.flush——
+// reportProgress 为 false 时一次都不能漏（timeupdate、暂停、切到后台、卸载
+// 这四个时机都会触发上报，漏掉任何一个匿名访客都会被踢去登录页）。
+function reportAt(seconds: number): void {
+  if (!props.reportProgress) return
+  report.call(seconds)
+}
+
+function reportNow(): void {
+  if (!props.reportProgress) return
+  report.flush()
+}
 
 const showControls = computed(() => controlsVisible.value || !playing.value)
 
@@ -93,7 +120,7 @@ function onTimeUpdate(): void {
   const v = video.value
   if (!v) return
   currentTime.value = v.currentTime
-  report.call(v.currentTime)
+  reportAt(v.currentTime)
 }
 
 function onPlay(): void {
@@ -106,11 +133,11 @@ function onPause(): void {
   playing.value = false
   if (idleTimer) clearTimeout(idleTimer)
   controlsVisible.value = true
-  report.flush()
+  reportNow()
 }
 
 function onVisibilityChange(): void {
-  if (document.hidden) report.flush()
+  if (document.hidden) reportNow()
 }
 
 function toggleFullscreen(): void {
@@ -138,7 +165,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   if (idleTimer) clearTimeout(idleTimer)
-  report.flush()
+  reportNow()
 })
 </script>
 

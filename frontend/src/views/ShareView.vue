@@ -207,15 +207,26 @@ async function submitPassword(): Promise<void> {
 
 // ── 视觉体系：body 上没有 route.meta.domain（AppShell 只认路由静态 meta），
 // 这里按接口实际返回的 domain 手动挂一次，让 --page/--page-ink、--accent
-// 等域内令牌生效——图片域的阅读器满幅纸色正是靠这个。离开页面时清掉，
-// 交还给下一个路由的 AppShell watchEffect 去决定。
+// 等域内令牌生效——图片域的阅读器满幅纸色正是靠这个。离开页面时按条件收回
+// （见下面 onBeforeUnmount 的注释），交还给下一个路由的 AppShell watchEffect 去决定。
+let appliedDomain: string | null = null
+
 watch(domain, (d) => {
-  if (d === 'VIDEO') document.body.dataset.domain = 'video'
-  else if (d === 'IMAGE') document.body.dataset.domain = 'image'
+  const applied = d === 'VIDEO' ? 'video' : d === 'IMAGE' ? 'image' : null
+  if (applied === null) return
+  document.body.dataset.domain = applied
+  appliedDomain = applied
 }, { immediate: true })
 
+// 只有 body 上挂的还是**自己**设的那个值才收回去。AppShell 的 watchEffect 是
+// pre-flush watcher，离开分享页时它可能先于本组件的 unmount 把目标路由的
+// data-domain 设好——那时无条件 delete 会把刚设好的视觉语言擦掉，目标页面
+// 退化成中性壳，直到下一次路由变化才恢复。分享链接是真实可达的
+// （ItemDetailView 就在生产 /s/{token} 链接），这条不是纸面上的隐患。
 onBeforeUnmount(() => {
-  delete document.body.dataset.domain
+  if (appliedDomain !== null && document.body.dataset.domain === appliedDomain) {
+    delete document.body.dataset.domain
+  }
 })
 
 // ── 键盘翻页：仅图片域、无密码、阅读器可见时生效；加成本很低，顺手加上。
@@ -298,6 +309,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             :resumePosition="null"
             :prevTarget="null"
             :nextTarget="null"
+            :reportProgress="false"
           />
           <div v-if="videoFiles.length > 1" class="file-switch">
             <button
