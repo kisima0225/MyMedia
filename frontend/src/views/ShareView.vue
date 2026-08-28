@@ -90,14 +90,22 @@ const MODE_OPTIONS: { value: ReaderMode; label: string }[] = [
   { value: 'continuous', label: '连续' },
 ]
 
+// 只在 fetch 成功之后才改 parentStack——失败时栈不该多一条脏记录，
+// 否则下一次「上一级」会跟实际展示的节点对不上。
 function enterChild(childId: number): void {
-  if (imageNode.value) parentStack.value.push(imageNode.value.id)
-  void loadImageNode(childId)
+  const parentId = imageNode.value?.id
+  void runLoad(async () => {
+    await loadImageNode(childId)
+    if (parentId != null) parentStack.value.push(parentId)
+  })
 }
 
 function goUpNode(): void {
-  const parentId = parentStack.value.pop()
-  void loadImageNode(parentId)
+  const parentId = parentStack.value[parentStack.value.length - 1]
+  void runLoad(async () => {
+    await loadImageNode(parentId)
+    parentStack.value.pop()
+  })
 }
 
 async function loadImageNode(nodeId: number | undefined): Promise<void> {
@@ -127,33 +135,50 @@ async function loadContent(): Promise<void> {
   }
 }
 
-async function init(): Promise<void> {
-  status.value = 'loading'
-  try {
-    const desc = await describeShare(props.token)
-    domain.value = desc.domain
-    requiresPassword.value = desc.requiresPassword
-    if (desc.requiresPassword) {
-      status.value = 'password'
-      return
-    }
-    await loadContent()
-    status.value = 'ready'
-  } catch {
-    // 无效、过期、已撤销的令牌一律同一句话——不区分是为了不告诉扫链接的人
-    // 「这个令牌曾经存在」，与后端 ShareLinkService.resolve 同一条规矩。
-    status.value = 'not-found'
-  }
-}
+// 统一的「装载动作」执行器：把最近一次尝试的动作记下来，失败时进入可重试的
+// content-error 态，「重试」按钮统一走 retryContent() 重放同一个动作——
+// 初次装载、密码解锁后装载、子节点导航失败后重试，都是同一套机制，不为
+// 每个入口各发明一套状态。
+let lastLoad: () => Promise<void> = () => loadContent()
 
-async function retryContent(): Promise<void> {
+async function runLoad(action: () => Promise<void>): Promise<void> {
+  lastLoad = action
   status.value = 'loading'
   try {
-    await loadContent()
+    await action()
     status.value = 'ready'
   } catch {
     status.value = 'content-error'
   }
+}
+
+async function init(): Promise<void> {
+  status.value = 'loading'
+
+  // 令牌本身有效与否，和令牌有效之后内容拉取是否成功，是两件不同的事：
+  // 前者才是「链接不存在或已失效」，没有重试的必要（重试也不会让撤销的
+  // 令牌复活）；后者只是网络抖动一类的临时失败，应该可以重试，不该被误判
+  // 成链接失效——这里分成两段 try，不共用同一个 catch。
+  try {
+    const desc = await describeShare(props.token)
+    domain.value = desc.domain
+    requiresPassword.value = desc.requiresPassword
+  } catch {
+    // 无效、过期、已撤销的令牌一律同一句话——不区分是为了不告诉扫链接的人
+    // 「这个令牌曾经存在」，与后端 ShareLinkService.resolve 同一条规矩。
+    status.value = 'not-found'
+    return
+  }
+
+  if (requiresPassword.value) {
+    status.value = 'password'
+    return
+  }
+  await runLoad(() => loadContent())
+}
+
+async function retryContent(): Promise<void> {
+  await runLoad(lastLoad)
 }
 
 async function submitPassword(): Promise<void> {
@@ -176,15 +201,8 @@ async function submitPassword(): Promise<void> {
   }
 
   ticket.value = issuedTicket
-  status.value = 'loading'
-  try {
-    await loadContent()
-    status.value = 'ready'
-  } catch {
-    status.value = 'content-error'
-  } finally {
-    unlocking.value = false
-  }
+  await runLoad(() => loadContent())
+  unlocking.value = false
 }
 
 // ── 视觉体系：body 上没有 route.meta.domain（AppShell 只认路由静态 meta），
