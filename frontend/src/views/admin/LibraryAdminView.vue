@@ -235,6 +235,43 @@ async function loadShares(): Promise<void> {
   }
 }
 
+/**
+ * 一条分享链接的完整地址。
+ *
+ * 表格里只显示令牌前 8 位（完整令牌很长，铺开会把其他列挤没），但「事后找回
+ * 一条已经创建好的分享链接」是这个面板的主要用途之一——只看前 8 位是拼不回
+ * 地址的，所以每一行都配一个复制入口。路径形状与 ItemDetailView 创建成功后
+ * 展示的那条一致：ShareView 挂在 /s/:token（router/index.ts）。
+ */
+function shareUrl(link: ShareLink): string {
+  return `${location.origin}/s/${link.token}`
+}
+
+// 复制状态按行存：表格里同时有很多行，共用一个状态会让「已复制」显示在
+// 用户没点过的那一行上。
+const copyStatus = ref<Record<number, 'copied' | 'failed'>>({})
+const COPY_LABEL: Record<'copied' | 'failed', string> = {
+  copied: '已复制',
+  failed: '复制失败',
+}
+
+function copyLabel(link: ShareLink): string {
+  const state = copyStatus.value[link.id]
+  return state ? COPY_LABEL[state] : '复制链接'
+}
+
+async function copyShareUrl(link: ShareLink): Promise<void> {
+  // navigator.clipboard 在非安全上下文（http 访问的自托管部署）下是 undefined，
+  // 不只是会 reject——所以这里要连「读属性就炸」一起兜住，失败时给一个可见的
+  // 「复制失败」，让用户知道该手动选中地址栏里的链接。
+  try {
+    await navigator.clipboard.writeText(shareUrl(link))
+    copyStatus.value[link.id] = 'copied'
+  } catch {
+    copyStatus.value[link.id] = 'failed'
+  }
+}
+
 function shareStatusLabel(link: ShareLink): string {
   if (link.revokedAt) return '已撤销'
   if (link.expiresAt && new Date(link.expiresAt).getTime() <= Date.now()) return '已过期'
@@ -414,7 +451,12 @@ onMounted(() => {
           </thead>
           <tbody>
             <tr v-for="link in shares" :key="link.id">
-              <td class="mono">{{ link.token.slice(0, 8) }}</td>
+              <td class="mono">
+                <span class="token-text" :title="shareUrl(link)">{{ link.token.slice(0, 8) }}</span>
+                <button type="button" class="copy-inline" @click="copyShareUrl(link)">
+                  {{ copyLabel(link) }}
+                </button>
+              </td>
               <td>
                 <RouterLink
                   v-if="link.domain === 'VIDEO'"
@@ -565,6 +607,30 @@ onMounted(() => {
 
 .error-text {
   color: #d98a78;
+}
+
+.token-text {
+  white-space: nowrap;
+}
+
+.copy-inline {
+  margin-left: var(--space-2);
+  padding: 1px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--dim);
+  font-family: var(--font-body);
+  font-size: var(--step--1);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.copy-inline:hover {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .retry-inline {

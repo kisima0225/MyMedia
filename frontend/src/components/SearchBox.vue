@@ -225,7 +225,11 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--raised);
-  box-shadow: var(--elevation);
+  /* --elevation 只在两个域下定义（tokens.css）。搜索框在中性页面（/search、
+     /favorites、/admin/*）也会出现，那里没有 data-domain，不给兜底值这条声明
+     会静默失效、下拉面板变成一块和背景难以分辨的浮层。兜底值与 AppShell 顶栏
+     用的同一个。 */
+  box-shadow: var(--elevation, 0 8px 24px -6px rgb(0 0 0 / 0.5));
   z-index: 20;
 }
 
