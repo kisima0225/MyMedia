@@ -42,6 +42,7 @@ async function load(): Promise<void> {
   shareExpiresInDaysInput.value = ''
   shareErrorText.value = null
   copyStatus.value = 'idle'
+  shareBusy.value = false
   try {
     const detail = await nodeDetail(nodeId.value)
     node.value = detail
@@ -102,6 +103,12 @@ function toggleSharePanel(): void {
 
 async function submitShare(): Promise<void> {
   if (!node.value || shareBusy.value) return
+  // 请求发出后用户可能已经切换到另一个节点——node.value 会被 load() 换成
+  // 新节点甚至 null。捕获这次请求真正对应的节点 id，await 之后但凡它跟
+  // node.value.id 对不上，就说明响应已经过期（属于上一个节点），三个分支
+  // （成功/失败/finally）都不能再写共享的 ref，否则就是 A 节点的响应
+  // 把 B 节点页面上的分享面板给污染了。
+  const requestedNodeId = node.value.id
   shareBusy.value = true
   shareErrorText.value = null
   try {
@@ -113,14 +120,19 @@ async function submitShare(): Promise<void> {
       const days = Number(daysText)
       if (Number.isFinite(days)) body.expiresInDays = days
     }
-    const response = await createShare('image', node.value.id, body)
+    const response = await createShare('image', requestedNodeId, body)
+    if (node.value?.id !== requestedNodeId) return
     shareLink.value = `${location.origin}/s/${response.token}`
     shareCreated.value = true
     copyStatus.value = 'idle'
   } catch (err) {
+    if (node.value?.id !== requestedNodeId) return
     shareErrorText.value = err instanceof Error ? err.message : '创建分享链接失败，请重试'
   } finally {
-    shareBusy.value = false
+    // 只在响应仍属于当前显示的节点时才清 busy——否则一个晚到的 A 节点
+    // 响应会在用户已经为 B 节点发起新请求时，把 B 的 busy 提前清掉，
+    // 让"创建分享链接"按钮在 B 的请求还没回来前就能被再点一次。
+    if (node.value?.id === requestedNodeId) shareBusy.value = false
   }
 }
 
