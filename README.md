@@ -22,8 +22,11 @@ mvn -B -ntp spring-boot:run
 
 `compose.yaml` 现在还定义了 `app`（容器化整套应用）和一次性引导容器
 `demo-seed`：执行 `docker compose up -d --build`（不指定服务名）可以把三者一起拉起来，
-不需要本机装 JDK/Maven（`demo-seed` 要等 P13 的 `scripts/bootstrap-demo.sh` 落地才会跑通，
-在此之前它退出非 0 是预期行为，不影响 `postgres`/`app` 正常起来并转为健康）。
+不需要本机装 JDK/Maven。`demo-seed` 等 `app` 健康后用项目自己的公开 API
+（`scripts/bootstrap-demo.sh`）建"演示视频库"/"演示图片库"两个库、为它们启用本地
+`.nfo`/`metadata.json` 刮削并各触发一次扫描，跑完即退出（退出码 0）；幂等，重跑
+只会打印"跳过（已存在）"。媒体内容来自 `data/media/**`（`scripts/fetch-seed.*` 或
+`scripts/generate-seed-offline.sh` 产出），仓库里已经带了一份可直接用的演示数据。
 `app` 的媒体目录挂载宿主 `./data/media`，**必须可写**：Windows Docker Desktop 实测开箱即可写；
 Linux 宿主上 bind mount 会继承宿主目录属主，容器内是 uid 1000，写不进去时执行
 `sudo chown -R 1000:1000 data/media` 即可。
