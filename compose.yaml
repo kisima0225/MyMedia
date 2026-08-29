@@ -16,5 +16,52 @@ services:
       timeout: 5s
       retries: 10
 
+  app:
+    build: .
+    image: mymedia:dev
+    container_name: mymedia-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/mymedia
+      SPRING_DATASOURCE_USERNAME: mymedia
+      SPRING_DATASOURCE_PASSWORD: mymedia
+      MYMEDIA_ADMIN_USERNAME: ${MYMEDIA_ADMIN_USERNAME:-admin}
+      MYMEDIA_ADMIN_PASSWORD: ${MYMEDIA_ADMIN_PASSWORD:-admin}
+      # G14：留空会让带密码的分享链接在重启后要求访客重输密码
+      MYMEDIA_SHARE_SECRET: ${MYMEDIA_SHARE_SECRET:-replace-me-with-a-long-random-string}
+      MYMEDIA_METADATA_TMDB_API_KEY: ${MYMEDIA_METADATA_TMDB_API_KEY:-}
+      # 派生资源与上传临时目录都指到容器里的持久卷
+      MYMEDIA_PREVIEW_ROOT: /app/data/derived
+      MYMEDIA_UPLOAD_TEMP_ROOT: /app/data/uploads
+    ports:
+      - '8080:8080'
+    volumes:
+      # 媒体目录**必须可写**：Web 上传是把合并好的文件落进媒体库根目录、
+      # 再触发一次增量扫描接进语义层。挂成 :ro 会把 P11 整条链路废掉。
+      - ./data/media:/media
+      - mymedia-derived:/app/data/derived
+      - mymedia-uploads:/app/data/uploads
+
+  # 一次性引导：等 app 健康后，用项目自己的公开 API 建库并触发扫描。
+  # 幂等，跑完就退出，restart: "no" 保证它不会被反复拉起。
+  demo-seed:
+    image: mymedia:dev
+    container_name: mymedia-demo-seed
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint: ['/bin/bash', '/seed/bootstrap-demo.sh']
+    environment:
+      BASE_URL: http://app:8080
+      ADMIN_USER: ${MYMEDIA_ADMIN_USERNAME:-admin}
+      ADMIN_PASS: ${MYMEDIA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./scripts/bootstrap-demo.sh:/seed/bootstrap-demo.sh:ro
+
 volumes:
   mymedia-pgdata:
+  mymedia-derived:
+  mymedia-uploads:
