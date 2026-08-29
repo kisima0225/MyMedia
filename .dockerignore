@@ -1,0 +1,22 @@
+# 构建产物与工具链：必须挡住。
+# node_modules 与 .frontend-toolchain 在本机装的是 Windows 二进制，
+# 漏进 Linux 构建阶段会让 npm/node 直接执行失败。
+target/
+frontend/node_modules/
+frontend/dist/
+.frontend-toolchain/
+
+# 演示媒体与派生资源：几百 MB，且构建阶段完全用不到
+data/
+
+# 版本库与开发期垃圾
+.git/
+.gitignore
+.superpowers/
+.claude/
+*.log
+
+# 文档与计划：不进镜像
+docs/
+README.md
+tools/
