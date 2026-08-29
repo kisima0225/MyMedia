@@ -16,9 +16,17 @@ MyMedia 是一个自托管媒体库服务端，面向个人或小圈子部署，
 要求本机已安装 JDK 25、Maven 和 Docker Desktop：
 
 ```bash
-docker compose up -d
+docker compose up -d postgres
 mvn -B -ntp spring-boot:run
 ```
+
+`compose.yaml` 现在还定义了 `app`（容器化整套应用）和一次性引导容器
+`demo-seed`：执行 `docker compose up -d --build`（不指定服务名）可以把三者一起拉起来，
+不需要本机装 JDK/Maven（`demo-seed` 要等 P13 的 `scripts/bootstrap-demo.sh` 落地才会跑通，
+在此之前它退出非 0 是预期行为，不影响 `postgres`/`app` 正常起来并转为健康）。
+`app` 的媒体目录挂载宿主 `./data/media`，**必须可写**：Windows Docker Desktop 实测开箱即可写；
+Linux 宿主上 bind mount 会继承宿主目录属主，容器内是 uid 1000，写不进去时执行
+`sudo chown -R 1000:1000 data/media` 即可。
 
 首次启动会由 `src/main/java/com/mymedia/user/AdminBootstrap.java` 幂等创建本地演示管理员 `admin/admin`。生产部署必须覆盖默认凭证，例如：
 
