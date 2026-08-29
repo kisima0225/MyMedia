@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<movie>
+  <title>Sintel</title>
+  <originaltitle>Sintel</originaltitle>
+  <year>2010</year>
+  <plot>Blender 基金会的第三部开源电影。本演示库收录的是官方预告片（CC BY 3.0）。</plot>
+  <genre>动画</genre>
+  <studio>Blender Foundation</studio>
+</movie>

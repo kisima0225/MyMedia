@@ -1,0 +1,102 @@
+{
+  "note": "演示资产清单。仓库里不存任何第三方媒体字节，只存这份清单、我们自己写的 .nfo 和获取脚本。许可证与署名见 seed/LICENSES.md。",
+  "userAgent": "MyMedia-seed/0.1 (+https://github.com/kisima0225/MyMedia)",
+  "minIntervalSeconds": 2,
+  "assets": [
+    {
+      "id": "sintel-trailer",
+      "kind": "video",
+      "url": "https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4",
+      "sha256": "b670602fa00934ca27c4351bb0efe7ea7a07fae57284e44226025eeed7c51254",
+      "bytes": 4372373,
+      "license": "CC BY 3.0",
+      "attribution": "Sintel（预告片）© Blender Foundation | durian.blender.org",
+      "target": "video/电影/Sintel (2010)/Sintel.mp4"
+    },
+    {
+      "id": "bbb-trailer",
+      "kind": "video",
+      "url": "https://download.blender.org/peach/trailer/trailer_480p.mov",
+      "sha256": "36801b74638c12be9aa587e93cd18edfc9bc51a1c089ab2a19ee42beed9f497d",
+      "bytes": 11061011,
+      "license": "CC BY 3.0",
+      "attribution": "Big Buck Bunny（预告片）© Blender Foundation | peach.blender.org",
+      "target": "video/电影/Big Buck Bunny (2008)/Big Buck Bunny.mov"
+    },
+    {
+      "id": "hokusai-great-wave",
+      "kind": "image",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/0/0a/The_Great_Wave_off_Kanagawa.jpg",
+      "sha256": "44a8486abdf0330a3fe6b586e407506e738fe075fe0b5dfc43961e358fda7206",
+      "bytes": 2684586,
+      "license": "Public Domain",
+      "attribution": "神奈川冲浪里 · 葛饰北斋（1831 前后）| Wikimedia Commons",
+      "target": "image/图集/葛饰北斋/01.jpg"
+    },
+    {
+      "id": "hokusai-tsunami",
+      "kind": "image",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/a/a5/Tsunami_by_hokusai_19th_century.jpg",
+      "sha256": "30c170260de393f51bd592adacc6f0714b60f157c09744e9c5b6d46e6a613718",
+      "bytes": 2354187,
+      "license": "Public Domain",
+      "attribution": "葛饰北斋（19 世纪）| Wikimedia Commons",
+      "target": "image/图集/葛饰北斋/02.jpg"
+    },
+    {
+      "id": "hokusai-red-fuji",
+      "kind": "image",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/5/57/Red_Fuji_southern_wind_clear_morning.jpg",
+      "sha256": "6266cbb436f958b3197f6a048c3a738a7353eb4d6f37702970ee9feb689f47cd",
+      "bytes": 2839776,
+      "license": "Public Domain",
+      "attribution": "凯风快晴（赤富士）· 葛饰北斋《富岳三十六景》| Wikimedia Commons",
+      "target": "image/图集/葛饰北斋/03.jpg"
+    },
+    {
+      "id": "hokusai-rainstorm",
+      "kind": "image",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/7/75/Lightnings_below_the_summit.jpg",
+      "sha256": "c10de0409236144ab48b1238dec052330b45ee876a91768b7a91d8bf611f5a61",
+      "bytes": 1434985,
+      "license": "Public Domain",
+      "attribution": "山下白雨 · 葛饰北斋《富岳三十六景》| Wikimedia Commons",
+      "target": "image/图集/葛饰北斋/04.jpg"
+    },
+    {
+      "id": "hokusai-kajikazawa",
+      "kind": "image",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/f/fc/Kajikazawa_in_Kai_province.jpg",
+      "sha256": "af2faf5b104493f3ab6d0fbcec879eab396a5c77d248118b7f5b3976e62e2d71",
+      "bytes": 1939052,
+      "license": "Public Domain",
+      "attribution": "甲州石班沢 · 葛饰北斋《富岳三十六景》| Wikimedia Commons",
+      "target": "image/图集/葛饰北斋/05.jpg"
+    },
+    {
+      "id": "hokusai-ejiri",
+      "kind": "image",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/12/Ejiri_in_the_Suruga_province.jpg",
+      "sha256": "ec04fc02a1ac4ce250262494728792ca5a578bbafd8f29601386facd1f4fe818",
+      "bytes": 4804667,
+      "license": "Public Domain",
+      "attribution": "駿州江尻 · 葛饰北斋《富岳三十六景》| Wikimedia Commons",
+      "target": "image/图集/葛饰北斋/06.jpg"
+    }
+  ],
+  "archives": [
+    {
+      "id": "hokusai-cbz",
+      "target": "image/漫画/葛饰北斋画集.cbz",
+      "pages": [
+        "hokusai-great-wave",
+        "hokusai-tsunami",
+        "hokusai-red-fuji",
+        "hokusai-rainstorm",
+        "hokusai-kajikazawa",
+        "hokusai-ejiri"
+      ],
+      "note": "CBZ 由脚本用上面这些已下载的公有领域图片现打，仓库里不存归档文件本身。"
+    }
+  ]
+}

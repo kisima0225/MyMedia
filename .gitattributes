@@ -1,0 +1,6 @@
+# scripts/*.sh 要在 Linux 容器（mymedia:dev、临时 ubuntu 容器）里当 bash 脚本执行。
+# 本仓库没有配过 .gitattributes，core.autocrlf=true 又是打开的：Windows 上检出会把
+# 这些文件重写成 CRLF，shebang 变成 "#!/usr/bin/env bash\r"，容器里报
+# "env: 'bash\r': No such file or directory"。写 seed 脚本时实测踩到了这个坑，
+# 固定成 LF 避免以后所有平台上的检出都要重踩一次。
+scripts/*.sh text eol=lf

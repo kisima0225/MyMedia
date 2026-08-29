@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tvshow>
+  <title>Blender 演示剧集</title>
+  <plot>由 scripts/generate-seed-offline.sh 用 ffmpeg 合成的三集彩条片，
+        专门用来演示文件名解析（S01E01 形式）、剧集分组与继续观看。</plot>
+  <studio>MyMedia 演示数据</studio>
+</tvshow>
