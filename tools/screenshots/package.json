@@ -1,0 +1,13 @@
+{
+  "name": "mymedia-screenshots",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "给 README 产截图的独立工具，不属于前端工程，也不进 Maven 构建",
+  "scripts": {
+    "shoot": "node shoot.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
