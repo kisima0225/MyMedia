@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { nodeDetail, browse, setReadingMode } from '@/api/image'
+import { createShare } from '@/api/shares'
 import type { ImageNodeSummary } from '@/api/types'
 import Breadcrumb from '@/components/image/Breadcrumb.vue'
 import NodeGrid from '@/components/image/NodeGrid.vue'
@@ -34,6 +35,13 @@ async function load(): Promise<void> {
   error.value = null
   node.value = null
   browseData.value = null
+  shareOpen.value = false
+  shareCreated.value = false
+  shareLink.value = null
+  sharePassword.value = ''
+  shareExpiresInDaysInput.value = ''
+  shareErrorText.value = null
+  copyStatus.value = 'idle'
   try {
     const detail = await nodeDetail(nodeId.value)
     node.value = detail
@@ -71,6 +79,60 @@ async function onReadingModeChange(event: Event): Promise<void> {
     console.warn('切换阅读模式失败', err)
   }
 }
+
+const shareOpen = ref(false)
+const sharePassword = ref('')
+const shareExpiresInDaysInput = ref('')
+const shareBusy = ref(false)
+const shareErrorText = ref<string | null>(null)
+const shareLink = ref<string | null>(null)
+const shareCreated = ref(false)
+const copyStatus = ref<'idle' | 'copied' | 'failed'>('idle')
+
+const COPY_STATUS_LABEL: Record<typeof copyStatus.value, string> = {
+  idle: '复制链接',
+  copied: '已复制',
+  failed: '复制失败',
+}
+const copyButtonLabel = computed(() => COPY_STATUS_LABEL[copyStatus.value])
+
+function toggleSharePanel(): void {
+  shareOpen.value = !shareOpen.value
+}
+
+async function submitShare(): Promise<void> {
+  if (!node.value || shareBusy.value) return
+  shareBusy.value = true
+  shareErrorText.value = null
+  try {
+    const body: { password?: string; expiresInDays?: number } = {}
+    const password = sharePassword.value.trim()
+    if (password) body.password = password
+    const daysText = shareExpiresInDaysInput.value.trim()
+    if (daysText) {
+      const days = Number(daysText)
+      if (Number.isFinite(days)) body.expiresInDays = days
+    }
+    const response = await createShare('image', node.value.id, body)
+    shareLink.value = `${location.origin}/s/${response.token}`
+    shareCreated.value = true
+    copyStatus.value = 'idle'
+  } catch (err) {
+    shareErrorText.value = err instanceof Error ? err.message : '创建分享链接失败，请重试'
+  } finally {
+    shareBusy.value = false
+  }
+}
+
+async function copyShareLink(): Promise<void> {
+  if (!shareLink.value) return
+  try {
+    await navigator.clipboard.writeText(shareLink.value)
+    copyStatus.value = 'copied'
+  } catch {
+    copyStatus.value = 'failed'
+  }
+}
 </script>
 
 <template>
@@ -99,6 +161,42 @@ async function onReadingModeChange(event: Event): Promise<void> {
           </label>
           <span v-if="modeError" class="mode-error" role="alert">{{ modeError }}</span>
         </div>
+      </div>
+
+      <div class="share-row">
+        <button type="button" class="action" @click="toggleSharePanel">分享这个节点</button>
+      </div>
+
+      <div v-if="shareOpen" class="share-panel">
+        <template v-if="!shareCreated">
+          <label class="field">
+            <span>密码（可选）</span>
+            <input v-model="sharePassword" type="password" placeholder="留空表示不设密码" />
+          </label>
+          <label class="field">
+            <span>有效天数（可选，1–365）</span>
+            <input
+              v-model="shareExpiresInDaysInput"
+              type="number"
+              min="1"
+              max="365"
+              placeholder="留空表示永不过期"
+            />
+          </label>
+          <button type="button" class="action primary" :disabled="shareBusy" @click="submitShare">
+            创建分享链接
+          </button>
+          <p v-if="shareErrorText" class="hint error">{{ shareErrorText }}</p>
+        </template>
+        <template v-else>
+          <p class="hint success">已创建分享链接</p>
+          <div class="share-link-row">
+            <code class="share-link">{{ shareLink }}</code>
+            <button type="button" class="action" @click="copyShareLink">
+              {{ copyButtonLabel }}
+            </button>
+          </div>
+        </template>
       </div>
 
       <!-- 双入口是这个页面的全部意义（spec §6.4）：readable 与 browsable 同时为真时，
@@ -199,6 +297,106 @@ async function onReadingModeChange(event: Event): Promise<void> {
 
 .banner-action:hover {
   filter: brightness(1.2);
+}
+
+.action {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.action:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action.primary {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.hint {
+  font-size: var(--step--1);
+  color: var(--dim);
+}
+
+.hint.error {
+  color: var(--accent);
+}
+
+.hint.success {
+  color: var(--text);
+}
+
+.share-row {
+  margin-bottom: var(--space-4);
+}
+
+.share-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 28em;
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--raised);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--step--1);
+  color: var(--dim);
+}
+
+.field input {
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.share-link-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.share-link {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  background: var(--ground);
+  font-family: var(--font-data);
+  font-size: var(--step--1);
+  color: var(--text);
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .skeleton-wrap {
