@@ -39,7 +39,11 @@ RUN apt-get update \
 # 我们要用的 uid），不删的话 `useradd --uid 1000` 会以 exit code 4 失败
 # （"UID 1000 is not unique"）。先删掉这个自带账号，再按原计划把 uid 1000
 # 固定给 mymedia。
-RUN userdel -r ubuntu \
+#
+# 这里先判断存在再删：`25-jre` 是浮动 tag，将来某次 docker build 拉到的新版
+# 基础镜像未必还带这个自带账号，而 `userdel` 删不存在的用户会返回非零退出码，
+# 那会让整条构建以一个和真实原因无关的报错挂掉。
+RUN if id -u ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi \
     && useradd --system --uid 1000 --shell /bin/bash --home-dir /app --create-home mymedia
 
 WORKDIR /app

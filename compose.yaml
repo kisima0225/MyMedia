@@ -7,7 +7,12 @@ services:
       POSTGRES_USER: mymedia
       POSTGRES_PASSWORD: mymedia
     ports:
-      - '5432:5432'
+      # 只绑回环地址。密码是写死在本文件里的 `mymedia`，写成 '5432:5432' 会把它
+      # 发布到本机所有网卡上——在同一个局域网（宿舍、咖啡馆、公司网段）里任何人
+      # 都能直接连上这个库。应用自己走 compose 内部网络的 postgres:5432，不经过
+      # 这个映射；这里保留映射只是为了「本机开发（不用容器）」那条路径能连
+      # localhost:5432，以及你想用图形化客户端看表。
+      - '127.0.0.1:5432:5432'
     volumes:
       - mymedia-pgdata:/var/lib/postgresql/data
     healthcheck:
