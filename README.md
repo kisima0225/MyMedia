@@ -105,8 +105,8 @@ Vite 开发服务器默认监听 `5173`，会把 `/api/**` 请求代理到本机
 
 ### 界面预览
 
-浏览器前端把两个域做成两套视觉语言——视频发光、图片反光，具体设计定稿见
-[计划 07 前端设计定稿](docs/superpowers/plans/2026-08-17-00-总览与交接.md)（§13.5）。
+浏览器前端把两个域做成两套视觉语言——视频发光、图片反光，取舍记录在
+[前端 walkthrough](docs/walkthrough/07-前端.md)。
 截图用 [`tools/screenshots`](tools/screenshots) 对着一个跑起来的真实实例现拍，不是手工摆拍：
 
 | | |
@@ -260,9 +260,8 @@ flowchart LR
 
 ## 路线图
 
-设计文档 [§11 实施路线图](docs/superpowers/specs/2026-08-17-mymedia-design.md#11-实施路线图)
-的 P0–P13 已全部完成，对应八份实施计划（见
-[总览与交接](docs/superpowers/plans/2026-08-17-00-总览与交接.md)）。
+设计文档 §11 定下的 P0–P13 已全部完成，对应八份实施计划。设计规格与实施计划是
+开发期的内部工作文档，没有随本仓库发布，见下方[关于文档](#关于文档)。
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
@@ -288,7 +287,21 @@ flowchart LR
 | TMDB key | 需要刮削英文影视才配 `MYMEDIA_METADATA_TMDB_API_KEY` | 留空则该刮削器安静降级，不算错误 |
 | 数据卷备份 | `mymedia-pgdata` 必须备；`mymedia-derived` 可以不备（删掉能由任务队列全量重建） | — |
 | 媒体目录属主 | `chown -R 1000:1000 data/media`（容器里以 uid 1000 运行）。**不限于 Linux 宿主**——凡是媒体目录由 root 创建（含在容器里跑 `fetch-seed.sh`）都要，两个 seed 脚本已自动处理 | 上传与扫描写不进去（`AccessDeniedException`） |
-| 反向代理 | 自行配置；应用本身只监听 8080，不做 TLS | — |
+| **数据库端口** | compose 已把它绑成 `127.0.0.1:5432:5432`（只有本机连得上）。**不要改回 `5432:5432`**；真要从别的机器连，改密码并走 SSH 隧道 | 数据库密码是本仓库里写死的 `mymedia`，发布到所有网卡等于把整个库交出去 |
+| 应用端口 | `8080:8080` 是有意发布的——这是你要用浏览器打开的东西。放到公网前先过完本表其余各行，并在前面加反向代理 | 未改默认口令时等于公开 `admin/admin` |
+| 反向代理 | 自行配置；应用本身只监听 8080，不做 TLS | 明文 HTTP 传输口令与媒体票据 |
+
+## 关于文档
+
+仓库里发布的文档有三类：
+
+- [`docs/adr/`](docs/adr)——15 篇决策记录，每篇回答一个「为什么是这个方案而不是那个」。
+- [`docs/walkthrough/`](docs/walkthrough)——八篇按实施阶段写的讲解，跟着代码走一遍。
+- [`docs/串讲-逐模块.md`](docs/串讲-逐模块.md)——十一个模块逐个过一遍。
+
+另有一份**设计规格**和**八份实施计划**（含一份「总览与交接」），是开发期的内部工作
+文档，没有随本仓库发布。ADR 与 walkthrough 里出现的「设计文档 §N」「总览与交接 §N」
+指的就是它们——引用处已经把结论写在正文里，不看原件不影响理解。
 
 ## ADR 索引
 
@@ -307,3 +320,12 @@ flowchart LR
 - [ADR-013：按领域切分 API](docs/adr/ADR-013-按领域切分-API.md)：解释为什么 `/api/video/**` 与 `/api/image/**` 保持两套独立端点而不合并成带 `type` 参数的统一接口，全局搜索是唯一交汇点且结果分区不混排。
 - [ADR-014：为什么不引入 Redis / Elasticsearch / 消息队列](docs/adr/ADR-014-为什么不引入-Redis-Elasticsearch-与消息队列.md)：说明 `job` 表 + `SKIP LOCKED`、`pg_trgm`/`tsvector`、`ConcurrentMapCacheManager` 如何分别替代这三个中间件，以及各自「什么时候该改主意」的触发条件。
 - [ADR-015：为什么用虚拟线程](docs/adr/ADR-015-为什么用虚拟线程.md)：解释阻塞 I/O 主导的工作负载为何适合虚拟线程，以及 `synchronized` pinning、`ThreadLocal` 失效、HikariCP 连接池才是新瓶颈这三个实践坑。
+
+## 许可
+
+代码与文档采用 [MIT License](LICENSE)。
+
+**演示素材不在此列。** 本仓库不包含任何第三方媒体文件——`scripts/fetch-seed.*`
+在你本机按 `seed/manifest.json` 下载它们。这些素材各有自己的许可证（Blender 基金会
+的两段预告片是 CC BY 3.0，六幅葛饰北斋浮世绘是公有领域），署名与来源逐条列在
+[`seed/LICENSES.md`](seed/LICENSES.md)。

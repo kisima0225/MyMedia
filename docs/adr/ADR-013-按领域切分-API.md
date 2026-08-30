@@ -54,8 +54,8 @@ DTO、控制器与服务。项目从计划 03（视频域）到计划 04（图�
 `VideoSearchController`、`ImageSearchController` 三个类里各写了一遍
 `private static final int MAX_LIMIT = 100;` 加同样的
 `Math.clamp(limit, 1, MAX_LIMIT)`，没有抽到 `shared`。这不是遗漏：计划
-06 的 review 把它明确记为一条 deferred Minor（`docs/superpowers/plans/
-2026-08-17-00-总览与交接.md` §11：「`MAX_LIMIT = 100` +
+06 的 review 把它明确记为一条 deferred Minor（内部文档「总览与交接」
+§11：「`MAX_LIMIT = 100` +
 `Math.clamp(limit, 1, MAX_LIMIT)` 在 `GlobalSearchController`、
 `VideoSearchController`（Task 2）、`ImageSearchController`（Task 3）
 三个控制器里逐字重复，未抽到 `shared`——与本项目『不为几行重复代码搭
