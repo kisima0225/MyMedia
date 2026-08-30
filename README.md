@@ -39,9 +39,15 @@ docker compose up -d --force-recreate demo-seed
 离线模式生成的是彩条视频与带页码的散图，**不含 CBZ**（容器里没有 zip，
 而图片域本来就原生支持散图目录）——CBZ 的演示需要在线路径。
 
-`app` 的媒体目录挂载宿主 `./data/media`，**必须可写**：Windows Docker Desktop 实测开箱即可写；
-Linux 宿主上 bind mount 会继承宿主目录属主，容器内是 uid 1000，写不进去时执行
-`sudo chown -R 1000:1000 data/media` 即可。
+`app` 的媒体目录挂载宿主 `./data/media`，**必须可写**。容器里 app 以 uid 1000 运行，
+而 bind mount 保留的是**创建这些目录的那个身份**——决定因素是「谁建的目录」，不是宿主的操作系统：
+
+- 宿主上直接建（PowerShell 跑 `fetch-seed.ps1`、或本机有 ffmpeg 时跑离线生成器）：Windows Docker
+  Desktop 实测开箱即可写。
+- **在容器里以 root 建**（Git Bash / Linux 上按 README 用一次性容器跑 `fetch-seed.sh`，或用
+  `--user root` 跑离线生成器）：目录会是 `root:root 755`，app 写不进去，**Web 上传的最后一步会以
+  `AccessDeniedException: /media/video/xxx` 失败**。两个 seed 脚本因此在检测到自己是 root 时会
+  自动 `chown -R 1000:1000`；万一仍然写不进去，手动补一次 `sudo chown -R 1000:1000 data/media`。
 
 首次启动会由 `src/main/java/com/mymedia/user/AdminBootstrap.java` 幂等创建初始管理员，账号密码来自 `.env` 里的 `MYMEDIA_ADMIN_USERNAME` / `MYMEDIA_ADMIN_PASSWORD`（默认 `admin`/`admin`）；面向他人的部署必须覆盖默认凭证，具体见下方「部署清单」。
 
@@ -281,7 +287,7 @@ flowchart LR
 | 媒体票据密钥 | 刻意不配 | 无后果：票据 15 分钟过期且前端自动续签，重启最多多取一次票据（见 ADR-008） |
 | TMDB key | 需要刮削英文影视才配 `MYMEDIA_METADATA_TMDB_API_KEY` | 留空则该刮削器安静降级，不算错误 |
 | 数据卷备份 | `mymedia-pgdata` 必须备；`mymedia-derived` 可以不备（删掉能由任务队列全量重建） | — |
-| 媒体目录属主 | Linux 宿主上 `chown -R 1000:1000 data/media`（容器里以 uid 1000 运行） | 上传与扫描写不进去 |
+| 媒体目录属主 | `chown -R 1000:1000 data/media`（容器里以 uid 1000 运行）。**不限于 Linux 宿主**——凡是媒体目录由 root 创建（含在容器里跑 `fetch-seed.sh`）都要，两个 seed 脚本已自动处理 | 上传与扫描写不进去（`AccessDeniedException`） |
 | 反向代理 | 自行配置；应用本身只监听 8080，不做 TLS | — |
 
 ## ADR 索引

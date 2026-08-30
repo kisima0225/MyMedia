@@ -43,6 +43,9 @@ services:
       - ./data/media:/media
       - mymedia-derived:/app/data/derived
       - mymedia-uploads:/app/data/uploads
+      # 离线兜底脚本要在这个镜像里跑（它有 ffmpeg，宿主机不一定有）。
+      # 挂成只读：它只读取自己、只往 /media 写。
+      - ./scripts:/seed:ro
 
   # 一次性引导：等 app 健康后，用项目自己的公开 API 建库并触发扫描。
   # 幂等，跑完就退出，restart: "no" 保证它不会被反复拉起。

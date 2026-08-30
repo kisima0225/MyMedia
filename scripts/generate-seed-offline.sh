@@ -44,5 +44,15 @@ else
   echo "跳过（已存在）：$DIR（12 页散图）"
 fi
 
+# 以 root 身份跑时（容器里获取种子就是这种情况），把媒体树的属主交给应用容器里的
+# uid 1000。不这么做，Web 上传的最后一步会以
+#   AccessDeniedException: /media/video/xxx
+# 失败——目录是 root:root 755，而 app 以 uid 1000 运行。README 部署清单原本把这条
+# 只写成「Linux 宿主上」，实测 Windows + Docker Desktop 同样会踩到，因为决定属主的
+# 是"谁创建了这些目录"，不是宿主的操作系统。
+if [ "$(id -u)" = "0" ]; then
+  chown -R 1000:1000 "$MEDIA" 2>/dev/null || true
+fi
+
 echo
 echo "完成。离线演示数据就绪。"
