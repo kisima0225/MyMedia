@@ -11,8 +11,10 @@ import java.util.Optional;
 /**
  * 秒传判定：这个库里是不是已经有一份一模一样的文件了。
  *
- * <p>分两步，因为 {@code scanned_file.content_hash} <b>绝大多数是 NULL</b>——
- * 计划 02 只在改名检测需要时才算它。只按哈希查会几乎全部落空，秒传形同虚设。
+ * <p>分两步。第 1 步按 {@code content_hash} 直接查：扫描已经为每个 ACTIVE 文件
+ * 补齐了哈希（{@code LibraryScanner.scan} → {@code ensureHash}），所以这一步通常
+ * 就能命中。第 2 步是兜底，覆盖第 1 步查不到的两类文件——<b>哈希计算抛过异常的</b>
+ * 与<b>上次扫描之后才出现的</b>。
  *
  * <ol>
  *   <li>按 {@code content_hash} 直接查（部分索引，一次查找）</li>

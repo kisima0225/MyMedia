@@ -21,9 +21,11 @@ import java.util.Optional;
  * 而本类要往 {@code scanned_file.content_hash} 里写。物理层状态的所有权仍在
  * {@code scan} 手里，对外只暴露「给我算一下并存起来」这一个动作。
  *
- * <p>调用方是 {@code upload} 的秒传判定：{@code content_hash} 绝大多数是 NULL
- * （计划 02 只在改名检测需要时才算），所以按哈希查会大量落空，
- * 需要「取同尺寸候选现算」这条兜底路径。
+ * <p>调用方是 {@code upload} 的秒传判定。注意 {@code content_hash} <b>并不是
+ * 「绝大多数为 NULL」</b>：{@code LibraryScanner.scan} 在每次对账之后会对本库每个
+ * ACTIVE 文件调一次 {@code ensureHash}，缺失就补，所以扫过一遍的库里按哈希查通常
+ * 命中。「取同尺寸候选现算」这条兜底路径仍然需要，但它兜的是**哈希计算抛过异常的
+ * 文件**与**上次扫描之后才出现的文件**，而不是大多数文件。
  */
 @Service
 public class ScannedFileHashService {
